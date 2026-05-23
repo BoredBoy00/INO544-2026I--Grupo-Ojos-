@@ -84,7 +84,7 @@
 
                 <!-- Footer del visor con indicador de estado rápido -->
                 <div class="viewer-footer">
-                    <p id="time-indicator">Siguiente captura automática en: <strong>7.0s</strong></p>
+                    <p id="time-indicator">Siguiente captura automática en: <strong>5.0s</strong></p>
                     <button class="btn btn-text" id="btn-resume-loop" style="display: none;">
                         Omitir espera y reanudar cámara
                     </button>
@@ -115,6 +115,17 @@
                                     <path class="circle" id="stat-radial-progress" stroke-dasharray="0, 100"
                                         d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                                 </svg>
+                            </div>
+                        </div>
+
+                        <!-- Barra de Confianza Lineal -->
+                        <div class="confidence-bar-wrapper">
+                            <div class="confidence-bar-header">
+                                <span class="confidence-bar-label">Porcentaje de Confianza</span>
+                                <span class="confidence-bar-value" id="stat-linear-percent">0.0%</span>
+                            </div>
+                            <div class="confidence-bar-track">
+                                <div class="confidence-bar-fill" id="stat-linear-bar" style="width: 0%;"></div>
                             </div>
                         </div>
 

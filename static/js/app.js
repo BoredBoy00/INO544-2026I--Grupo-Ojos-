@@ -52,7 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let webcamStream = null;
     let loopInterval = null;
     let timerRemaining = 0;
-    const CAPTURE_INTERVAL_MS = 7000;
+    const CAPTURE_INTERVAL_MS = 5000;
     const SHOW_RESULT_DURATION_MS = 10000;
     const TICK_RATE_MS = 100;
     
@@ -336,7 +336,29 @@ document.addEventListener("DOMContentLoaded", () => {
             activateLegendGlow("gray");
         }
         
-
+        // 4. Actualizar Barra de Confianza Lineal Premium
+        const statLinearPercent = document.getElementById("stat-linear-percent");
+        const statLinearBar = document.getElementById("stat-linear-bar");
+        
+        if (statLinearPercent && statLinearBar) {
+            statLinearPercent.innerText = `${percent}%`;
+            statLinearBar.style.width = `${percent}%`;
+            
+            // Cambiar color y efectos visuales de la barra lineal según veredicto
+            if (data.verdict === "Ojo Detectado") {
+                statLinearBar.style.background = "linear-gradient(90deg, var(--color-primary), var(--color-success))";
+                statLinearPercent.style.color = "var(--color-success)";
+                statLinearBar.style.boxShadow = "0 0 10px rgba(16, 185, 129, 0.4)";
+            } else if (data.verdict === "Coincidencia Baja") {
+                statLinearBar.style.background = "linear-gradient(90deg, var(--color-warning), var(--color-danger))";
+                statLinearPercent.style.color = "var(--color-danger)";
+                statLinearBar.style.boxShadow = "0 0 10px rgba(239, 68, 68, 0.4)";
+            } else {
+                statLinearBar.style.background = "var(--text-muted)";
+                statLinearPercent.style.color = "var(--text-muted)";
+                statLinearBar.style.boxShadow = "none";
+            }
+        }
     }
 
     function activateLegendGlow(activeType) {
