@@ -4,9 +4,12 @@ import numpy as np
 import base64
 import onnxruntime as ort
 from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
 
 # Inicializar aplicación Flask
 app = Flask(__name__, static_folder="static", template_folder="templates")
+app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB máximo por petición
+CORS(app, origins=["http://127.0.0.1:5500", "http://localhost:5500"])  # Permitir Live Server
 
 # Cargar clasificadores Haar Cascade de OpenCV
 try:
@@ -17,9 +20,17 @@ try:
     face_cascade = cv2.CascadeClassifier(face_path)
     eye_cascade = cv2.CascadeClassifier(eye_path)
     eye_glass_cascade = cv2.CascadeClassifier(eye_glass_path)
+
+    if face_cascade.empty() or eye_cascade.empty() or eye_glass_cascade.empty():
+        raise ValueError("Uno o más clasificadores Haar Cascade están vacíos o no se encontraron.")
+
     print("[*] Clasificadores Haar Cascade cargados correctamente.")
 except Exception as e:
     print(f"[!] Error al cargar clasificadores Haar Cascade: {e}")
+
+# Umbrales por defecto (ajustados tras calibración 224×224 — menos falsos positivos)
+DEFAULT_THRESHOLD = 0.60
+DEFAULT_LOW_THRESHOLD = 0.28
 
 # Cargar el modelo ONNX globalmente para evitar latencias en la inferencia
 MODEL_PATH = "./model/tu_modelo.onnx"
@@ -106,8 +117,8 @@ def detect():
     """
     try:
         # 1. Obtener los umbrales configurables
-        threshold = float(request.values.get("threshold", 0.5))
-        low_threshold = float(request.values.get("low_threshold", 0.001))
+        threshold = float(request.values.get("threshold", DEFAULT_THRESHOLD))
+        low_threshold = float(request.values.get("low_threshold", DEFAULT_LOW_THRESHOLD))
         
         img_bgr = None
         
@@ -130,12 +141,19 @@ def detect():
                 img_bytes = base64.b64decode(image_data)
                 nparr = np.frombuffer(img_bytes, np.uint8)
                 img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                threshold = float(data.get("threshold", threshold))
-                low_threshold = float(data.get("low_threshold", low_threshold))
+                
+                # Asegurar que los umbrales estén en el rango [0, 1]
+                input_val = data.get("threshold", threshold)
+                threshold = max(0.0, min(1.0, float(input_val)))
+                input_low_val = data.get("low_threshold", low_threshold)
+                low_threshold = max(0.0, min(1.0, float(input_low_val)))
         
         if img_bgr is None:
             return jsonify({"success": False, "error": "No se recibió ninguna imagen válida."}), 400
             
+        if face_cascade is None or eye_cascade is None or eye_glass_cascade is None:
+            return jsonify({"success": False, "error": "Los clasificadores Haar Cascade no están cargados."}), 500
+
         h_img, w_img, _ = img_bgr.shape
         img_display = img_bgr.copy()
         
@@ -159,6 +177,16 @@ def detect():
                 eyes_glass = eye_glass_cascade.detectMultiScale(roi_gray, scaleFactor=1.05, minNeighbors=2, minSize=(15, 15))
                 for (ex, ey, ew, eh) in eyes_glass:
                     all_eye_candidates.append((fx + ex, fy + ey, ew, eh))
+
+            # Si hay rostro pero el ROI no devolvió ojos, buscar en toda la imagen
+            # (misma lógica que train_model.py para parches 224×224)
+            if len(all_eye_candidates) == 0:
+                eyes_std = eye_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
+                for (ex, ey, ew, eh) in eyes_std:
+                    all_eye_candidates.append((ex, ey, ew, eh))
+                eyes_glass = eye_glass_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
+                for (ex, ey, ew, eh) in eyes_glass:
+                    all_eye_candidates.append((ex, ey, ew, eh))
         else:
             # Si no hay caras, buscar en toda la imagen con parámetros más estrictos
             eyes_std = eye_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(25, 25))
@@ -181,6 +209,23 @@ def detect():
             if not is_dup:
                 unique_candidates.append((x, y, w, h))
         all_eye_candidates = unique_candidates
+
+        # Descartar candidatos fuera del rostro (Haar suele marcar ropa/texturas)
+        if len(faces) > 0 and len(all_eye_candidates) > 0:
+            filtered = []
+            for (x, y, w, h) in all_eye_candidates:
+                cx, cy = x + w / 2, y + h / 2
+                inside_face = False
+                for (fx, fy, fw, fh) in faces:
+                    if (
+                        fx - 10 <= cx <= fx + fw + 10
+                        and fy - 10 <= cy <= fy + int(fh * 0.72)
+                    ):
+                        inside_face = True
+                        break
+                if inside_face:
+                    filtered.append((x, y, w, h))
+            all_eye_candidates = filtered
         
         # Fallback al centro si no hay candidatos en absoluto
         fallback_used = False
@@ -196,12 +241,17 @@ def detect():
         red_detections = []   # (x, y, w, h, score)
         zero_detections = []  # (x, y, w, h, score)
         
+        fallback_score = None
         for (x, y, w, h) in all_eye_candidates:
             if fallback_used:
+                # Sin candidatos Haar: evaluar centro sin dibujar cajas
                 score, final_box = evaluate_crop_internal(img_bgr, x, y, w, h)
+                fallback_score = score
+                zero_detections.append((*final_box, score))
+                continue
             else:
                 score, final_box = refine_box(img_bgr, x, y, w, h)
-                
+
             fx, fy, fw, fh = final_box
             if score >= threshold:
                 green_detections.append((fx, fy, fw, fh, score))
@@ -249,21 +299,31 @@ def detect():
                 })
                 
             max_score = max([d["score"] for d in detections_list])
-            verdict = "Ojo Detectado" if len(green_detections) > 0 else "Coincidencia Baja"
+            if len(green_detections) > 0:
+                verdict = "Ojo Detectado"
+            else:
+                verdict = "Coincidencia Baja"
             
         else:
-            # No se detectó ojo, mostrar puntuación en rojo en el centro
+            # Sin cajas: puntuación centrada (modo fallback o scores muy bajos)
             all_evaluated = green_detections + red_detections + zero_detections
-            max_score = max(item[4] for item in all_evaluated) if len(all_evaluated) > 0 else 0.0
-            
+            if fallback_score is not None:
+                max_score = fallback_score
+            else:
+                max_score = max(item[4] for item in all_evaluated) if len(all_evaluated) > 0 else 0.0
+
             score_text = f"{max_score:.4f}"
             font = cv2.FONT_HERSHEY_SIMPLEX
             text_size, _ = cv2.getTextSize(score_text, font, 1.0, 2)
             tx = (w_img - text_size[0]) // 2
             ty = (h_img + text_size[1]) // 2
-            color = (0, 0, 255) # Rojo en BGR
+            # Rojo solo si supera umbral bajo; si no, gris (menos alarma en falsos positivos)
+            if max_score >= low_threshold:
+                color = (0, 0, 255)
+            else:
+                color = (160, 160, 160)
             cv2.putText(img_display, score_text, (tx, ty), font, 1.0, color, 2, cv2.LINE_AA)
-            
+
             verdict = "No se detectaron ojos"
             detections_list.append({
                 "box": [0, 0, 0, 0] if (fallback_used or not all_evaluated) else [int(all_evaluated[0][0]), int(all_evaluated[0][1]), int(all_evaluated[0][2]), int(all_evaluated[0][3])],

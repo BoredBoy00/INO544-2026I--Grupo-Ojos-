@@ -22,7 +22,7 @@
         <header class="app-header">
             <div class="header-logo">
                 <div class="logo-pulse"></div>
-                <h1>SISTEMA DE DETECCIÓN DE OJOS PRUEBA</h1>
+                <h1>SISTEMA DE DETECCIÓN DE OJOS</h1>
             </div>
             <div class="system-badge" id="system-status-badge">
                 <span class="status-dot green"></span>
@@ -165,9 +165,9 @@
                         <div class="slider-group">
                             <div class="slider-label-row">
                                 <label for="input-threshold">Umbral Mínimo (Verde)</label>
-                                <span class="slider-value" id="val-threshold">0.50</span>
+                                <span class="slider-value" id="val-threshold">0.60</span>
                             </div>
-                            <input type="range" id="input-threshold" min="0.01" max="1.00" step="0.01" value="0.50"
+                            <input type="range" id="input-threshold" min="0.01" max="1.00" step="0.01" value="0.60"
                                 class="slider-input">
                             <span class="slider-help">Umbral para clasificar como ojo detectado y dibujar caja
                                 verde.</span>
@@ -177,12 +177,12 @@
                         <div class="slider-group">
                             <div class="slider-label-row">
                                 <label for="input-low-threshold">Umbral Inferior (Rojo)</label>
-                                <span class="slider-value" id="val-low-threshold">0.001</span>
+                                <span class="slider-value" id="val-low-threshold">0.28</span>
                             </div>
-                            <input type="range" id="input-low-threshold" min="0.0001" max="0.1000" step="0.0005"
-                                value="0.0010" class="slider-input">
-                            <span class="slider-help">Umbral inferior para marcar coincidencia sospechosa con caja
-                                roja.</span>
+                            <input type="range" id="input-low-threshold" min="0.05" max="0.60" step="0.01"
+                                value="0.28" class="slider-input">
+                            <span class="slider-help">Por debajo de este valor no se muestra alerta roja (reduce falsos
+                                positivos en ropa/fondo).</span>
                         </div>
 
 
