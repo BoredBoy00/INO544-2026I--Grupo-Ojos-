@@ -1,19 +1,0 @@
-dummy_onnx_generator:í
-B
-	cam_inputreduced"
-ReduceMean*
-axes@@@ *
-keepdims 
-1
-reduced
-shape_constconfidence_score"Reshapedummy_eye_detector*:Bshape_constZ%
-	cam_input
-
-
-à
-à
-b"
-confidence_score
-
-
-B
