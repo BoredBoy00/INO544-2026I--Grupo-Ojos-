@@ -52,7 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let webcamStream = null;
     let loopInterval = null;
     let timerRemaining = 0;
-    const CAPTURE_INTERVAL_MS = 7000;
+    const CAPTURE_INTERVAL_MS = 5000;
     const SHOW_RESULT_DURATION_MS = 10000;
     const TICK_RATE_MS = 100;
     
@@ -197,6 +197,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 6. Lógica de Captura e Inferencia
     function captureFrameAndDetect() {
+        if (currentState === STATE.PROCESSING) return;
+
+        // Verificar que el video tenga dimensiones válidas antes de capturar
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+            console.warn("El video aún no tiene dimensiones válidas.");
+            return;
+        }
+
         transitionTo(STATE.PROCESSING);
         
         // Dibujar el frame actual en un Canvas oculto
@@ -225,7 +233,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function sendDetectionRequest(payload) {
         try {
-            const response = await fetch("/detect", {
+            const response = await fetch("http://127.0.0.1:5000/detect", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
@@ -252,39 +260,41 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // Procesar importación de archivos
-    async function handleFileImport(file) {
+    // Procesar importación de archivos (usa FileReader + base64, igual que la captura de cámara)
+    function handleFileImport(file) {
         if (!file) return;
-        
-        transitionTo(STATE.PROCESSING);
-        
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("threshold", inputThreshold.value);
-        formData.append("low_threshold", inputLowThreshold.value);
-        
-        try {
-            const response = await fetch("/detect", {
-                method: "POST",
-                body: formData
-            });
 
-            if (!response.ok) {
-                throw new Error(`Error en servidor: ${response.statusText}`);
-            }
-
-            const data = await response.json();
-            if (data.success) {
-                resultImage.src = data.image_base64;
-                updateStats(data);
-                transitionTo(STATE.SHOWING_RESULT);
-            } else {
-                showErrorOverlay(`Error de detección: ${data.error}`);
-            }
-        } catch (error) {
-            console.error("Error al procesar archivo cargado:", error);
-            showErrorOverlay("Error al subir o analizar el archivo.");
+        // Asegurarse de cancelar cualquier intervalo residual
+        if (loopInterval) {
+            clearInterval(loopInterval);
+            loopInterval = null;
         }
+
+        // Verificar que sea una imagen
+        if (!file.type.startsWith("image/")) {
+            alert("Por favor selecciona un archivo de imagen válido.");
+            return;
+        }
+
+        transitionTo(STATE.PROCESSING);
+
+        const reader = new FileReader();
+
+        reader.onload = function(evt) {
+            const base64Image = evt.target.result; // data:image/xxx;base64,...
+            // Enviar igual que la captura de cámara (JSON + base64)
+            sendDetectionRequest({
+                image: base64Image,
+                threshold: parseFloat(inputThreshold.value),
+                low_threshold: parseFloat(inputLowThreshold.value)
+            });
+        };
+
+        reader.onerror = function() {
+            showErrorOverlay("No se pudo leer el archivo de imagen.");
+        };
+
+        reader.readAsDataURL(file);
     }
 
     // 7. Actualización del Dashboard UI
@@ -326,7 +336,29 @@ document.addEventListener("DOMContentLoaded", () => {
             activateLegendGlow("gray");
         }
         
-
+        // 4. Actualizar Barra de Confianza Lineal Premium
+        const statLinearPercent = document.getElementById("stat-linear-percent");
+        const statLinearBar = document.getElementById("stat-linear-bar");
+        
+        if (statLinearPercent && statLinearBar) {
+            statLinearPercent.innerText = `${percent}%`;
+            statLinearBar.style.width = `${percent}%`;
+            
+            // Cambiar color y efectos visuales de la barra lineal según veredicto
+            if (data.verdict === "Ojo Detectado") {
+                statLinearBar.style.background = "linear-gradient(90deg, var(--color-primary), var(--color-success))";
+                statLinearPercent.style.color = "var(--color-success)";
+                statLinearBar.style.boxShadow = "0 0 10px rgba(16, 185, 129, 0.4)";
+            } else if (data.verdict === "Coincidencia Baja") {
+                statLinearBar.style.background = "linear-gradient(90deg, var(--color-warning), var(--color-danger))";
+                statLinearPercent.style.color = "var(--color-danger)";
+                statLinearBar.style.boxShadow = "0 0 10px rgba(239, 68, 68, 0.4)";
+            } else {
+                statLinearBar.style.background = "var(--text-muted)";
+                statLinearPercent.style.color = "var(--text-muted)";
+                statLinearBar.style.boxShadow = "none";
+            }
+        }
     }
 
     function activateLegendGlow(activeType) {
@@ -402,9 +434,14 @@ document.addEventListener("DOMContentLoaded", () => {
     imageImportInput.addEventListener("change", (e) => {
         const file = e.target.files[0];
         if (file) {
+            // Cancelar cualquier timer activo para que no interfiera con la importación
+            if (loopInterval) {
+                clearInterval(loopInterval);
+                loopInterval = null;
+            }
             handleFileImport(file);
             // Reiniciar el input para permitir recargar la misma imagen
-            imageImportInput.value = "";
+            e.target.value = "";
         }
     });
 

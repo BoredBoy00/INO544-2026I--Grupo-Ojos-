@@ -72,7 +72,11 @@ def refine_box(img, x, y, w, h, session, input_name, output_name):
                     
     return best_score, best_box
 
-def detect_and_draw_eyes(image_path, model_path, threshold=0.5, low_threshold=0.001, output_path="./data/resultado_deteccion.jpg"):
+DEFAULT_THRESHOLD = 0.60
+DEFAULT_LOW_THRESHOLD = 0.28
+
+
+def detect_and_draw_eyes(image_path, model_path, threshold=DEFAULT_THRESHOLD, low_threshold=DEFAULT_LOW_THRESHOLD, output_path="./data/resultado_deteccion.jpg"):
     # 1. Verificar existencia del modelo
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"No se encontró el modelo ONNX en: '{model_path}'")
@@ -120,6 +124,14 @@ def detect_and_draw_eyes(image_path, model_path, threshold=0.5, low_threshold=0.
             eyes_glass = eye_glass_cascade.detectMultiScale(roi_gray, scaleFactor=1.05, minNeighbors=2, minSize=(15, 15))
             for (ex, ey, ew, eh) in eyes_glass:
                 all_eye_candidates.append((fx + ex, fy + ey, ew, eh))
+
+        if len(all_eye_candidates) == 0:
+            eyes_std = eye_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
+            for (ex, ey, ew, eh) in eyes_std:
+                all_eye_candidates.append((ex, ey, ew, eh))
+            eyes_glass = eye_glass_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
+            for (ex, ey, ew, eh) in eyes_glass:
+                all_eye_candidates.append((ex, ey, ew, eh))
     else:
         # Si no hay cara detectada, buscar ojos en toda la imagen con ambos clasificadores
         # Usamos parámetros más estrictos para el escaneo global a fin de mitigar falsos positivos
@@ -143,6 +155,22 @@ def detect_and_draw_eyes(image_path, model_path, threshold=0.5, low_threshold=0.
         if not is_dup:
             unique_candidates.append((x, y, w, h))
     all_eye_candidates = unique_candidates
+
+    if len(faces) > 0 and len(all_eye_candidates) > 0:
+        filtered = []
+        for (x, y, w, h) in all_eye_candidates:
+            cx, cy = x + w / 2, y + h / 2
+            inside_face = False
+            for (fx, fy, fw, fh) in faces:
+                if (
+                    fx - 10 <= cx <= fx + fw + 10
+                    and fy - 10 <= cy <= fy + int(fh * 0.72)
+                ):
+                    inside_face = True
+                    break
+            if inside_face:
+                filtered.append((x, y, w, h))
+        all_eye_candidates = filtered
             
     # Si no se detectaron candidatos en absoluto, evaluar la imagen en su centro como fallback
     fallback_used = False
@@ -162,11 +190,13 @@ def detect_and_draw_eyes(image_path, model_path, threshold=0.5, low_threshold=0.
     
     for (x, y, w, h) in all_eye_candidates:
         if fallback_used:
-            # Si se usó el fallback central, no dibujamos caja sin importar su confianza
             score, final_box = evaluate_crop_internal(img_bgr, x, y, w, h, session, input_name, output_name)
-            zero_detections.append((*final_box, score))
+            fx, fy, fw, fh = final_box
+            if score >= low_threshold:
+                red_detections.append((fx, fy, fw, fh, score))
+            else:
+                zero_detections.append((fx, fy, fw, fh, score))
         else:
-            # Refinar el candidato buscando localmente la máxima puntuación del modelo ONNX
             score, final_box = refine_box(img_bgr, x, y, w, h, session, input_name, output_name)
             fx, fy, fw, fh = final_box
             if score >= threshold:
@@ -266,14 +296,14 @@ def main():
     parser.add_argument(
         "-t", "--threshold",
         type=float,
-        default=0.5,
+        default=DEFAULT_THRESHOLD,
         help="Umbral de validación para caja verde del clasificador ONNX."
     )
     parser.add_argument(
         "-lt", "--low-threshold",
         type=float,
-        default=0.001,
-        help="Umbral inferior para marcar coincidencia por encima de cero con caja roja."
+        default=DEFAULT_LOW_THRESHOLD,
+        help="Umbral inferior para marcar coincidencia sospechosa con caja roja."
     )
     parser.add_argument(
         "-o", "--output",

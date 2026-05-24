@@ -10,7 +10,7 @@ def preprocess_image(image_path, target_size=(224, 224), normalize=True):
     Lee y preprocesa una imagen para la inferencia con el modelo CNN en formato ONNX.
     
     Pasos:
-    1. Carga la imagen local en formato BGR.
+    1. Carga la imagen local en formato BGR .
     2. Convierte de BGR a RGB.
     3. Redimensiona exactamente a target_size (224x224).
     4. Normaliza los píxeles a float32 en rango [0.0, 1.0] (si normalize es True).

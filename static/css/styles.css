@@ -765,3 +765,83 @@ body {
 .result-item.green-border { border-left: 3px solid var(--color-success); }
 .result-item.red-border { border-left: 3px solid var(--color-danger); }
 .result-item.none-border { border-left: 3px solid var(--text-muted); }
+
+/* 7. Barra de Confianza Lineal Premium */
+.confidence-bar-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    margin-top: 10px;
+    transition: all var(--transition-normal);
+}
+
+.confidence-bar-wrapper:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.06);
+}
+
+.confidence-bar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.confidence-bar-label {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.confidence-bar-value {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.04);
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    transition: all var(--transition-normal);
+}
+
+.confidence-bar-track {
+    width: 100%;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    position: relative;
+}
+
+.confidence-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--color-primary), var(--color-success));
+    border-radius: 5px;
+    transition: width var(--transition-slow) ease-out, background var(--transition-normal);
+    position: relative;
+}
+
+/* Animación de brillo dinámico en la barra de progreso */
+.confidence-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+    animation: bar-shine 2s infinite linear;
+}
+
+@keyframes bar-shine {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
