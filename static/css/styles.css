@@ -845,3 +845,47 @@ body {
     0% { transform: translateX(-100%); }
     100% { transform: translateX(100%); }
 }
+
+/* Barra de progreso de detección premium */
+.detection-progress-track {
+    flex: 1;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    position: relative;
+}
+
+.detection-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #a855f7, #3b82f6);
+    border-radius: 6px;
+    transition: width 0.1s linear, background var(--transition-normal);
+    position: relative;
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
+}
+
+.detection-progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+    animation: bar-shine 2s infinite linear;
+}
+
+.detection-progress-value {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: #a855f7; /* Comienza morado */
+    min-width: 50px;
+    text-align: right;
+    transition: color var(--transition-normal);
+}
+
+

@@ -18,11 +18,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnManualCapture = document.getElementById("btn-manual-capture");
     const imageImportInput = document.getElementById("image-import-input");
     
-    // Sliders de Configuración
-    const inputThreshold = document.getElementById("input-threshold");
-    const valThreshold = document.getElementById("val-threshold");
-    const inputLowThreshold = document.getElementById("input-low-threshold");
-    const valLowThreshold = document.getElementById("val-low-threshold");
+    // Barra de Progreso de Detección
+    const detectionProgressBar = document.getElementById("detection-progress-bar");
+    const detectionProgressPercent = document.getElementById("detection-progress-percent");
     
     // Estadísticas
     const statMaxScore = document.getElementById("stat-max-score");
@@ -55,6 +53,75 @@ document.addEventListener("DOMContentLoaded", () => {
     const CAPTURE_INTERVAL_MS = 5000;
     const SHOW_RESULT_DURATION_MS = 10000;
     const TICK_RATE_MS = 100;
+    
+    // Controladores del progreso de detección
+    let detectionProgressInterval = null;
+    let detectionProgressValue = 0;
+
+    function updateDetectionProgress(percent) {
+        const p = Math.max(0, Math.min(100, percent));
+        if (detectionProgressBar && detectionProgressPercent) {
+            detectionProgressBar.style.width = `${p}%`;
+            detectionProgressPercent.innerText = `${Math.round(p)}%`;
+            
+            // Cambiar el color del texto de morado (#a855f7) a azul (#3b82f6)
+            const r = Math.round(168 + (59 - 168) * (p / 100));
+            const g = Math.round(85 + (130 - 85) * (p / 100));
+            const b = Math.round(247 + (246 - 247) * (p / 100));
+            detectionProgressPercent.style.color = `rgb(${r}, ${g}, ${b})`;
+        }
+    }
+
+    function startDetectionProgressAnimation() {
+        if (detectionProgressInterval) {
+            clearInterval(detectionProgressInterval);
+        }
+        detectionProgressValue = 0;
+        updateDetectionProgress(0);
+        
+        // Cargar progresivamente hasta el 90%
+        detectionProgressInterval = setInterval(() => {
+            if (detectionProgressValue < 90) {
+                const remaining = 90 - detectionProgressValue;
+                detectionProgressValue += Math.max(1, remaining * 0.12);
+                updateDetectionProgress(detectionProgressValue);
+            } else {
+                clearInterval(detectionProgressInterval);
+            }
+        }, 50);
+    }
+
+    function finishDetectionProgressAnimation(callback) {
+        if (detectionProgressInterval) {
+            clearInterval(detectionProgressInterval);
+        }
+        
+        const startVal = detectionProgressValue;
+        const steps = 6;
+        let step = 0;
+        
+        const finishInterval = setInterval(() => {
+            step++;
+            const p = startVal + (100 - startVal) * (step / steps);
+            updateDetectionProgress(p);
+            
+            if (step >= steps) {
+                clearInterval(finishInterval);
+                setTimeout(() => {
+                    if (callback) callback();
+                }, 200);
+            }
+        }, 20);
+    }
+
+    function resetDetectionProgress() {
+        if (detectionProgressInterval) {
+            clearInterval(detectionProgressInterval);
+            detectionProgressInterval = null;
+        }
+        detectionProgressValue = 0;
+        updateDetectionProgress(0);
+    }
     
     // 3. Inicialización y Gestión de la Webcam
     async function initWebcam() {
@@ -101,6 +168,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 btnResumeLoop.style.display = "none";
                 setSystemStatus("Cámara Activa", "green");
                 setOverlay(false);
+                resetDetectionProgress();
                 
                 // Iniciar cuenta atrás de 7 segundos para captura
                 startTimelapseTimer(CAPTURE_INTERVAL_MS);
@@ -112,6 +180,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 // La barra de progreso se detiene en 100% temporalmente
                 timelineProgressBar.style.width = "100%";
                 timelineProgressBar.style.background = "var(--color-primary)";
+                startDetectionProgressAnimation();
                 break;
                 
             case STATE.SHOWING_RESULT:
@@ -131,6 +200,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 timelineProgressBar.style.width = "0%";
                 timeIndicator.innerHTML = "Timelapse detenido. Importe una imagen para analizar.";
                 btnResumeLoop.style.display = "none";
+                resetDetectionProgress();
                 break;
         }
     }
@@ -226,8 +296,8 @@ document.addEventListener("DOMContentLoaded", () => {
         // Enviar al servidor
         sendDetectionRequest({
             image: base64Image,
-            threshold: parseFloat(inputThreshold.value),
-            low_threshold: parseFloat(inputLowThreshold.value)
+            threshold: 0.60,
+            low_threshold: 0.28
         });
     }
 
@@ -242,7 +312,14 @@ document.addEventListener("DOMContentLoaded", () => {
             });
 
             if (!response.ok) {
-                throw new Error(`Error en servidor: ${response.statusText}`);
+                let errorDetails = `Error en servidor: HTTP ${response.status}`;
+                try {
+                    const errData = await response.json();
+                    if (errData && errData.error) {
+                        errorDetails = `Error: ${errData.error}`;
+                    }
+                } catch (e) {}
+                throw new Error(errorDetails);
             }
 
             const data = await response.json();
@@ -250,17 +327,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 // Actualizar imagen y estadísticas
                 resultImage.src = data.image_base64;
                 updateStats(data);
-                transitionTo(STATE.SHOWING_RESULT);
+                finishDetectionProgressAnimation(() => {
+                    transitionTo(STATE.SHOWING_RESULT);
+                });
             } else {
                 showErrorOverlay(`Error de detección: ${data.error}`);
             }
         } catch (error) {
             console.error("Error al procesar detección:", error);
-            showErrorOverlay("No se pudo conectar con el servidor de IA.");
+            showErrorOverlay(error.message || "No se pudo conectar con el servidor de IA.");
         }
     }
 
-    // Procesar importación de archivos (usa FileReader + base64, igual que la captura de cámara)
+    // Procesar importación de archivos con redimensionamiento en el cliente para optimizar el envío
     function handleFileImport(file) {
         if (!file) return;
 
@@ -281,13 +360,47 @@ document.addEventListener("DOMContentLoaded", () => {
         const reader = new FileReader();
 
         reader.onload = function(evt) {
-            const base64Image = evt.target.result; // data:image/xxx;base64,...
-            // Enviar igual que la captura de cámara (JSON + base64)
-            sendDetectionRequest({
-                image: base64Image,
-                threshold: parseFloat(inputThreshold.value),
-                low_threshold: parseFloat(inputLowThreshold.value)
-            });
+            const img = new Image();
+            img.onload = function() {
+                // Redimensionar la imagen a un tamaño máximo razonable (e.g., 1280px)
+                const MAX_WIDTH = 1280;
+                const MAX_HEIGHT = 1280;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+                    if (width > height) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    } else {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+
+                const canvas = document.createElement("canvas");
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Exportar como JPEG comprimido
+                const base64Image = canvas.toDataURL("image/jpeg", 0.85);
+
+                // Enviar la imagen optimizada
+                sendDetectionRequest({
+                    image: base64Image,
+                    threshold: 0.60,
+                    low_threshold: 0.28
+                });
+            };
+
+            img.onerror = function() {
+                showErrorOverlay("No se pudo cargar y procesar la imagen seleccionada.");
+            };
+
+            img.src = evt.target.result;
         };
 
         reader.onerror = function() {
@@ -406,15 +519,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 9. Event Listeners
-    // Sliders
-    inputThreshold.addEventListener("input", (e) => {
-        valThreshold.innerText = parseFloat(e.target.value).toFixed(2);
-    });
-    
-    inputLowThreshold.addEventListener("input", (e) => {
-        valLowThreshold.innerText = parseFloat(e.target.value).toFixed(4);
-    });
-
     // Botones
     btnManualCapture.addEventListener("click", () => {
         if (currentState === STATE.CAPTURING) {

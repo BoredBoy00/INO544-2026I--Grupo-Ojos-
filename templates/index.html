@@ -13,7 +13,7 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
         rel="stylesheet">
     <!-- Hojas de estilos -->
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="../static/css/styles.css">
 </head>
 
 <body>
@@ -138,6 +138,7 @@
                             </div>
                         </div>
 
+
                         <!-- Leyenda de colores del sistema -->
                         <div class="legend-container">
                             <div class="legend-item">
@@ -165,38 +166,20 @@
                     </div>
                 </section>
 
-                <!-- Tarjeta de Controles y Ajustes de Umbral -->
+                <!-- Tarjeta de Progreso de Detección -->
                 <section class="controls-card card">
                     <div class="card-header">
-                        <h2>Configuración de Detección</h2>
+                        <h2>Progreso de Detección</h2>
                     </div>
 
                     <div class="controls-content">
-                        <!-- Ajuste de Umbral Principal -->
-                        <div class="slider-group">
-                            <div class="slider-label-row">
-                                <label for="input-threshold">Umbral Mínimo (Verde)</label>
-                                <span class="slider-value" id="val-threshold">0.60</span>
+                        <span class="slider-help">Muestra el avance del análisis de la imagen y validación con el modelo ONNX.</span>
+                        <div class="detection-progress-container" style="display: flex; align-items: center; gap: 14px; margin-top: 8px;">
+                            <div class="detection-progress-track">
+                                <div class="detection-progress-fill" id="detection-progress-bar" style="width: 0%;"></div>
                             </div>
-                            <input type="range" id="input-threshold" min="0.01" max="1.00" step="0.01" value="0.60"
-                                class="slider-input">
-                            <span class="slider-help">Umbral para clasificar como ojo detectado y dibujar caja
-                                verde.</span>
+                            <span class="detection-progress-value" id="detection-progress-percent">0%</span>
                         </div>
-
-                        <!-- Ajuste de Umbral Secundario (Low) -->
-                        <div class="slider-group">
-                            <div class="slider-label-row">
-                                <label for="input-low-threshold">Umbral Inferior (Rojo)</label>
-                                <span class="slider-value" id="val-low-threshold">0.28</span>
-                            </div>
-                            <input type="range" id="input-low-threshold" min="0.05" max="0.60" step="0.01"
-                                value="0.28" class="slider-input">
-                            <span class="slider-help">Por debajo de este valor no se muestra alerta roja (reduce falsos
-                                positivos en ropa/fondo).</span>
-                        </div>
-
-
                     </div>
                 </section>
 
@@ -205,7 +188,7 @@
     </div>
 
     <!-- Script del Dashboard -->
-    <script src="/static/js/app.js"></script>
+    <script src="../static/js/app.js"></script>
 </body>
 
 </html>

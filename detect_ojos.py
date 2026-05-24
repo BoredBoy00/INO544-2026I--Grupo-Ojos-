@@ -215,34 +215,16 @@ def detect_and_draw_eyes(image_path, model_path, threshold=DEFAULT_THRESHOLD, lo
     
     if has_boxes:
         # Se detectaron coincidencias por encima de cero (>= low_threshold)
-        print(f"[+] Detección con coincidencia. Dibujando cajas:")
+        print(f"[+] Detección con coincidencia.")
         
-        # Dibujar primero las rojas (coincidencia baja/media)
+        # Procesar primero las rojas (coincidencia baja/media)
         for i, (x, y, w, h, score) in enumerate(red_detections):
-            color = (0, 0, 255) # Rojo en BGR
-            cv2.rectangle(img_display, (x, y), (x + w, y + h), color, 2)
-            
             score_text = f"{score:.4f}"
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.6
-            thickness = 1
-            ty = y - 8 if y - 8 > 20 else y + h + 20
-            
-            cv2.putText(img_display, score_text, (x, ty), font, font_scale, color, thickness, cv2.LINE_AA)
             print(f"  [Coincidencia Baja (Cuadro Rojo)] Box: [{x}, {y}, {w}, {h}] | Confianza: {score_text}")
             
-        # Dibujar las verdes (coincidencia alta, >= threshold)
+        # Procesar las verdes (coincidencia alta, >= threshold)
         for i, (x, y, w, h, score) in enumerate(green_detections):
-            color = (0, 255, 0) # Verde en BGR
-            cv2.rectangle(img_display, (x, y), (x + w, y + h), color, 2)
-            
             score_text = f"{score:.4f}"
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.6
-            thickness = 1
-            ty = y - 8 if y - 8 > 20 else y + h + 20
-            
-            cv2.putText(img_display, score_text, (x, ty), font, font_scale, color, thickness, cv2.LINE_AA)
             print(f"  [Ojo Detectado (Cuadro Verde)] Box: [{x}, {y}, {w}, {h}] | Confianza: {score_text}")
             
     else:
@@ -252,20 +234,7 @@ def detect_and_draw_eyes(image_path, model_path, threshold=DEFAULT_THRESHOLD, lo
         max_score = max(item[4] for item in all_evaluated) if len(all_evaluated) > 0 else 0.0000
         
         print(f"[!] No se detectaron ojos. Puntuación máxima obtenida (cercana a cero): {max_score:.6f}")
-        print("[*] Escribiendo puntuación en rojo en el centro de la imagen y sin cuadros...")
-        
-        score_text = f"{max_score:.4f}"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 1.0
-        thickness = 2
-        color = (0, 0, 255) # Rojo en BGR
-        
-        # Calcular tamaño del texto para centrarlo exactamente
-        text_size, _ = cv2.getTextSize(score_text, font, font_scale, thickness)
-        tx = (w_img - text_size[0]) // 2
-        ty = (h_img + text_size[1]) // 2
-        
-        cv2.putText(img_display, score_text, (tx, ty), font, font_scale, color, thickness, cv2.LINE_AA)
+        print("[*] Modo fallback o scores muy bajos...")
         
     print("-" * 60)
     

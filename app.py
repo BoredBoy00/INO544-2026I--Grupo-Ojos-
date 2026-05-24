@@ -9,7 +9,7 @@ from flask_cors import CORS
 # Inicializar aplicación Flask
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB máximo por petición
-CORS(app, origins=["http://127.0.0.1:5500", "http://localhost:5500"])  # Permitir Live Server
+CORS(app)  # Permitir todos los orígenes (incluyendo Live Server y carga local file://)
 
 # Cargar clasificadores Haar Cascade de OpenCV
 try:
@@ -264,16 +264,8 @@ def detect():
         detections_list = []
         
         if has_boxes:
-            # Dibujar cajas rojas (coincidencia baja/media)
+            # Procesar detecciones rojas (coincidencia baja/media)
             for (x, y, w, h, score) in red_detections:
-                color = (0, 0, 255) # Rojo en BGR
-                cv2.rectangle(img_display, (x, y), (x + w, y + h), color, 2)
-                
-                score_text = f"{score:.4f}"
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                ty = y - 8 if y - 8 > 20 else y + h + 20
-                cv2.putText(img_display, score_text, (x, ty), font, 0.6, color, 1, cv2.LINE_AA)
-                
                 detections_list.append({
                     "box": [int(x), int(y), int(w), int(h)],
                     "score": round(score, 4),
@@ -281,16 +273,8 @@ def detect():
                     "class": "Coincidencia Baja"
                 })
                 
-            # Dibujar cajas verdes (ojo detectado, >= threshold)
+            # Procesar detecciones verdes (ojo detectado, >= threshold)
             for (x, y, w, h, score) in green_detections:
-                color = (0, 255, 0) # Verde en BGR
-                cv2.rectangle(img_display, (x, y), (x + w, y + h), color, 2)
-                
-                score_text = f"{score:.4f}"
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                ty = y - 8 if y - 8 > 20 else y + h + 20
-                cv2.putText(img_display, score_text, (x, ty), font, 0.6, color, 1, cv2.LINE_AA)
-                
                 detections_list.append({
                     "box": [int(x), int(y), int(w), int(h)],
                     "score": round(score, 4),
@@ -305,24 +289,12 @@ def detect():
                 verdict = "Coincidencia Baja"
             
         else:
-            # Sin cajas: puntuación centrada (modo fallback o scores muy bajos)
+            # Sin cajas (modo fallback o scores muy bajos)
             all_evaluated = green_detections + red_detections + zero_detections
             if fallback_score is not None:
                 max_score = fallback_score
             else:
                 max_score = max(item[4] for item in all_evaluated) if len(all_evaluated) > 0 else 0.0
-
-            score_text = f"{max_score:.4f}"
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            text_size, _ = cv2.getTextSize(score_text, font, 1.0, 2)
-            tx = (w_img - text_size[0]) // 2
-            ty = (h_img + text_size[1]) // 2
-            # Rojo solo si supera umbral bajo; si no, gris (menos alarma en falsos positivos)
-            if max_score >= low_threshold:
-                color = (0, 0, 255)
-            else:
-                color = (160, 160, 160)
-            cv2.putText(img_display, score_text, (tx, ty), font, 1.0, color, 2, cv2.LINE_AA)
 
             verdict = "No se detectaron ojos"
             detections_list.append({
