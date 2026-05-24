@@ -118,17 +118,6 @@
                             </div>
                         </div>
 
-                        <!-- Barra de Confianza Lineal -->
-                        <div class="confidence-bar-wrapper">
-                            <div class="confidence-bar-header">
-                                <span class="confidence-bar-label">Porcentaje de Confianza</span>
-                                <span class="confidence-bar-value" id="stat-linear-percent">0.0%</span>
-                            </div>
-                            <div class="confidence-bar-track">
-                                <div class="confidence-bar-fill" id="stat-linear-bar" style="width: 0%;"></div>
-                            </div>
-                        </div>
-
                         <!-- Veredicto del Estado -->
                         <div class="verdict-banner neutral" id="stat-verdict-banner">
                             <span class="verdict-icon" id="stat-verdict-icon"></span>
@@ -163,20 +152,51 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Barra 0–100% según umbrales (debajo de la leyenda) -->
+                        <div class="threshold-progress-wrapper">
+                            <div class="threshold-progress-header">
+                                <span class="threshold-progress-title">Nivel de confianza</span>
+                                <span class="threshold-progress-value" id="threshold-progress-value">0%</span>
+                            </div>
+                            <div class="threshold-progress-track" id="threshold-progress-track">
+                                <div class="threshold-zone zone-none" id="tp-zone-none"></div>
+                                <div class="threshold-zone zone-low" id="tp-zone-low"></div>
+                                <div class="threshold-zone zone-eye" id="tp-zone-eye"></div>
+                                <div class="threshold-tick" id="threshold-tick-low" title="Umbral Low"></div>
+                                <div class="threshold-tick" id="threshold-tick-min" title="Umbral Min"></div>
+                                <div class="threshold-marker" id="threshold-marker"></div>
+                            </div>
+                            <div class="threshold-scale">
+                                <span>0%</span>
+                                <span id="threshold-scale-low">28%</span>
+                                <span id="threshold-scale-min">60%</span>
+                                <span>100%</span>
+                            </div>
+                            <div class="threshold-zone-labels">
+                                <span class="threshold-zone-label" id="tp-label-none">Ninguna</span>
+                                <span class="threshold-zone-label" id="tp-label-low">Coincidencia Baja</span>
+                                <span class="threshold-zone-label" id="tp-label-eye">Ojo Detectado</span>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
                 <!-- Tarjeta de Progreso de Detección -->
                 <section class="controls-card card">
                     <div class="card-header">
-                        <h2>Progreso de Detección</h2>
+                        <h2>Estado de Detección</h2>
                     </div>
 
                     <div class="controls-content">
-                        <span class="slider-help">Muestra el avance del análisis de la imagen y validación con el modelo ONNX.</span>
-                        <div class="detection-progress-container" style="display: flex; align-items: center; gap: 14px; margin-top: 8px;">
+                        <span class="slider-help">Resultado del análisis con el modelo ONNX tras procesar la imagen.</span>
+
+                        <p class="status-hint">La barra de confianza (0–100%) está en <strong>Estadísticas de Detección</strong>, debajo de la leyenda de colores.</p>
+
+                        <!-- Progreso de análisis en servidor (oculto) -->
+                        <div class="detection-progress-hidden" aria-hidden="true">
                             <div class="detection-progress-track">
-                                <div class="detection-progress-fill" id="detection-progress-bar" style="width: 0%;"></div>
+                                <div class="detection-progress-fill" id="detection-progress-bar"></div>
                             </div>
                             <span class="detection-progress-value" id="detection-progress-percent">0%</span>
                         </div>

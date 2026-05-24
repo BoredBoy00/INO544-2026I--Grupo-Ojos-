@@ -64,6 +64,9 @@ body {
     flex-direction: column;
     gap: 20px;
     flex: 1;
+    min-width: 0;
+    overflow-x: hidden;
+    box-sizing: border-box;
 }
 
 /* Header */
@@ -143,9 +146,10 @@ body {
 /* Dashboard Grid */
 .dashboard-grid {
     display: grid;
-    grid-template-columns: 1.2fr 0.8fr;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
     gap: 20px;
     flex: 1;
+    min-width: 0;
 }
 
 @media (max-width: 1024px) {
@@ -248,6 +252,8 @@ body {
 .viewer-card {
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .viewer-actions {
@@ -258,6 +264,7 @@ body {
 .viewport-wrapper {
     position: relative;
     width: 100%;
+    max-width: 100%;
     aspect-ratio: 4 / 3;
     background-color: #060913;
     border-radius: 12px;
@@ -266,6 +273,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
 }
 
 .viewport-element {
@@ -296,12 +304,18 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 #result-image {
-    width: 100%;
-    height: 100%;
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
     object-fit: contain;
+    object-position: center;
 }
 
 /* Overlay flotante */
@@ -359,21 +373,46 @@ body {
 }
 
 .viewer-footer {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+    padding: 7px 11px;
+    width: max-content;
+    max-width: 100%;
+    align-self: flex-start;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    box-sizing: border-box;
+}
+
+.viewer-footer.footer-expanded {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-top: 10px;
+    width: 100%;
+    align-self: stretch;
 }
 
 #time-indicator {
-    font-size: 0.88rem;
+    margin: 0;
+    padding: 0;
+    font-size: 0.78rem;
+    line-height: 1.35;
     color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    #time-indicator {
+        white-space: normal;
+    }
 }
 
 #time-indicator strong {
     color: var(--text-primary);
     font-family: monospace;
-    font-size: 1rem;
+    font-size: 0.9rem;
 }
 
 /* 5. Panel de Estadísticas (Sidebar) */
@@ -572,6 +611,192 @@ body {
 .legend-desc {
     font-size: 0.72rem;
     color: var(--text-secondary);
+}
+
+/* Barra de confianza 0–100% (umbrales Low / Min) */
+.threshold-progress-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.threshold-progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.threshold-progress-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.threshold-progress-value {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 1.75rem;
+    line-height: 1;
+    color: var(--text-muted);
+    transition: color var(--transition-normal), text-shadow var(--transition-normal);
+}
+
+.threshold-progress-value.state-eye {
+    color: var(--color-success);
+    text-shadow: 0 0 16px rgba(16, 185, 129, 0.45);
+}
+
+.threshold-progress-value.state-low {
+    color: var(--color-danger);
+    text-shadow: 0 0 16px rgba(239, 68, 68, 0.45);
+}
+
+.threshold-progress-value.state-none {
+    color: var(--text-muted);
+}
+
+.threshold-progress-track {
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 16px;
+    border-radius: 8px;
+    overflow: visible;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.threshold-zone {
+    height: 100%;
+    flex-shrink: 0;
+    opacity: 0.35;
+    transition: opacity var(--transition-normal), flex-basis var(--transition-slow);
+}
+
+.threshold-zone.zone-none {
+    background: linear-gradient(90deg, #475569, #64748b);
+    border-radius: 8px 0 0 8px;
+}
+
+.threshold-zone.zone-low {
+    background: linear-gradient(90deg, #b91c1c, #ef4444);
+}
+
+.threshold-zone.zone-eye {
+    background: linear-gradient(90deg, #059669, #10b981);
+    border-radius: 0 8px 8px 0;
+}
+
+.threshold-zone.active {
+    opacity: 1;
+}
+
+.threshold-zone.zone-none.active {
+    box-shadow: inset 0 0 12px rgba(148, 163, 184, 0.4);
+}
+
+.threshold-zone.zone-low.active {
+    box-shadow: inset 0 0 12px rgba(239, 68, 68, 0.5);
+}
+
+.threshold-zone.zone-eye.active {
+    box-shadow: inset 0 0 12px rgba(16, 185, 129, 0.5);
+}
+
+.threshold-tick {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.55);
+    transform: translateX(-50%);
+    z-index: 2;
+    pointer-events: none;
+    border-radius: 1px;
+}
+
+.threshold-marker {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #fff;
+    border: 3px solid var(--bg-card);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35), 0 2px 10px rgba(0, 0, 0, 0.45);
+    left: 0%;
+    transition: left var(--transition-slow), background var(--transition-normal),
+        box-shadow var(--transition-normal);
+    z-index: 6;
+    pointer-events: none;
+}
+
+.threshold-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-family: monospace;
+    padding: 0 2px;
+}
+
+.threshold-scale span:nth-child(2),
+.threshold-scale span:nth-child(3) {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.threshold-zone-labels {
+    display: flex;
+    width: 100%;
+    margin-top: 2px;
+}
+
+.threshold-zone-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--text-muted);
+    text-align: center;
+    flex-shrink: 0;
+    transition: color var(--transition-normal);
+    padding: 0 2px;
+    line-height: 1.2;
+}
+
+.threshold-zone-label.active {
+    color: var(--text-primary);
+}
+
+#tp-label-none.active { color: #94a3b8; }
+#tp-label-low.active  { color: var(--color-danger); }
+#tp-label-eye.active  { color: var(--color-success); }
+
+.status-hint {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.status-hint strong {
+    color: var(--text-primary);
+}
+
+.detection-progress-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
 }
 
 /* 6. Panel de Configuración e Historial */
@@ -846,7 +1071,7 @@ body {
     100% { transform: translateX(100%); }
 }
 
-/* Barra de progreso de detección premium */
+/* Barra de progreso de detección premium (oculta, funcional) */
 .detection-progress-track {
     flex: 1;
     height: 12px;
@@ -882,10 +1107,132 @@ body {
     font-family: var(--font-heading);
     font-weight: 700;
     font-size: 1.1rem;
-    color: #a855f7; /* Comienza morado */
+    color: #a855f7;
     min-width: 50px;
     text-align: right;
     transition: color var(--transition-normal);
 }
 
+/* =============================================
+   8. Barra de Estado Segmentada (Detection Status)
+   ============================================= */
+.status-bar-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+}
 
+/* Porcentaje de confianza grande */
+.status-bar-percent-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 2px;
+}
+
+.status-bar-percent-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.status-bar-percent-value {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 2rem;
+    line-height: 1;
+    color: var(--text-muted);
+    transition: color var(--transition-normal), text-shadow var(--transition-normal);
+    letter-spacing: -1px;
+}
+
+.status-bar-percent-value.state-eye {
+    color: var(--color-success);
+    text-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+}
+.status-bar-percent-value.state-low {
+    color: var(--color-danger);
+    text-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+}
+.status-bar-percent-value.state-none {
+    color: var(--text-muted);
+    text-shadow: none;
+}
+
+/* Pista con 3 zonas de color */
+.status-bar-track {
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 14px;
+    border-radius: 7px;
+    overflow: visible;
+    gap: 3px;
+}
+
+/* Cada zona ocupa 1/3 de la pista */
+.status-bar-zone {
+    flex: 1;
+    height: 100%;
+    border-radius: 7px;
+    opacity: 0.25;
+    transition: opacity var(--transition-normal);
+}
+
+.zone-none { background: var(--text-muted); }
+.zone-low  { background: var(--color-danger); }
+.zone-eye  { background: var(--color-success); }
+
+/* Zona activa se ilumina al máximo */
+.status-bar-zone.active {
+    opacity: 1;
+}
+.zone-none.active { box-shadow: 0 0 10px rgba(100, 116, 139, 0.7); }
+.zone-low.active  { box-shadow: 0 0 12px rgba(239, 68, 68, 0.6); }
+.zone-eye.active  { box-shadow: 0 0 12px rgba(16, 185, 129, 0.6); }
+
+/* Marcador circular que se desplaza sobre la pista */
+.status-bar-indicator {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%) translateX(-50%);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    border: 3px solid var(--bg-card);
+    box-shadow: 0 0 0 2px var(--text-muted), 0 2px 8px rgba(0,0,0,0.5);
+    left: 16.67%;
+    transition: left var(--transition-slow), background var(--transition-normal),
+                box-shadow var(--transition-normal);
+    z-index: 5;
+    pointer-events: none;
+}
+
+/* Etiquetas bajo la barra */
+.status-bar-labels {
+    display: flex;
+    justify-content: space-between;
+}
+
+.status-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: var(--text-muted);
+    text-align: center;
+    flex: 1;
+    transition: color var(--transition-normal), transform var(--transition-fast);
+    text-transform: uppercase;
+}
+
+.status-label.active {
+    transform: scale(1.05);
+}
+
+.label-none.active { color: var(--text-secondary); }
+.label-low.active  { color: var(--color-danger); }
+.label-eye.active  { color: var(--color-success); }

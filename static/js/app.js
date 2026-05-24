@@ -13,6 +13,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const timelineProgressBar = document.getElementById("timeline-progress-bar");
     const timeIndicator = document.getElementById("time-indicator");
     const btnResumeLoop = document.getElementById("btn-resume-loop");
+    const viewerFooter = document.querySelector(".viewer-footer");
+
+    function setViewerFooterCompact(compact) {
+        if (!viewerFooter) return;
+        viewerFooter.classList.toggle("footer-expanded", !compact);
+    }
     
     // Acciones e Inputs
     const btnManualCapture = document.getElementById("btn-manual-capture");
@@ -37,6 +43,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const legendRed = document.getElementById("legend-red-indicator");
     const legendGray = document.getElementById("legend-gray-indicator");
 
+    // Umbrales (mismos que se envían al backend)
+    const THRESHOLD_MIN = 0.60;
+    const THRESHOLD_LOW = 0.28;
+
+    // Barra de confianza 0–100% (debajo de la leyenda)
+    const thresholdProgressValue = document.getElementById("threshold-progress-value");
+    const thresholdMarker = document.getElementById("threshold-marker");
+    const tpZoneNone = document.getElementById("tp-zone-none");
+    const tpZoneLow = document.getElementById("tp-zone-low");
+    const tpZoneEye = document.getElementById("tp-zone-eye");
+    const thresholdTickLow = document.getElementById("threshold-tick-low");
+    const thresholdTickMin = document.getElementById("threshold-tick-min");
+    const tpLabelNone = document.getElementById("tp-label-none");
+    const tpLabelLow = document.getElementById("tp-label-low");
+    const tpLabelEye = document.getElementById("tp-label-eye");
+    const thresholdScaleLow = document.getElementById("threshold-scale-low");
+    const thresholdScaleMin = document.getElementById("threshold-scale-min");
+
     // 2. Configuración del Estado de la Aplicación
     const STATE = {
         INIT: "INIT",
@@ -53,6 +77,29 @@ document.addEventListener("DOMContentLoaded", () => {
     const CAPTURE_INTERVAL_MS = 5000;
     const SHOW_RESULT_DURATION_MS = 10000;
     const TICK_RATE_MS = 100;
+
+    /** Aplica anchos de zona según umbrales Low (28%) y Min (60%). */
+    function applyThresholdZoneLayout() {
+        const lowPct = THRESHOLD_LOW * 100;
+        const minPct = THRESHOLD_MIN * 100;
+        const midPct = minPct - lowPct;
+        const highPct = 100 - minPct;
+
+        if (tpZoneNone) tpZoneNone.style.flexBasis = `${lowPct}%`;
+        if (tpZoneLow) tpZoneLow.style.flexBasis = `${midPct}%`;
+        if (tpZoneEye) tpZoneEye.style.flexBasis = `${highPct}%`;
+
+        if (tpLabelNone) tpLabelNone.style.flexBasis = `${lowPct}%`;
+        if (tpLabelLow) tpLabelLow.style.flexBasis = `${midPct}%`;
+        if (tpLabelEye) tpLabelEye.style.flexBasis = `${highPct}%`;
+
+        if (thresholdTickLow) thresholdTickLow.style.left = `${lowPct}%`;
+        if (thresholdTickMin) thresholdTickMin.style.left = `${minPct}%`;
+        if (thresholdScaleLow) thresholdScaleLow.textContent = `${Math.round(lowPct)}%`;
+        if (thresholdScaleMin) thresholdScaleMin.textContent = `${Math.round(minPct)}%`;
+    }
+
+    applyThresholdZoneLayout();
     
     // Controladores del progreso de detección
     let detectionProgressInterval = null;
@@ -166,6 +213,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 video.classList.add("active");
                 resultOverlayContainer.classList.remove("active");
                 btnResumeLoop.style.display = "none";
+                setViewerFooterCompact(true);
                 setSystemStatus("Cámara Activa", "green");
                 setOverlay(false);
                 resetDetectionProgress();
@@ -188,6 +236,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 video.classList.remove("active");
                 resultOverlayContainer.classList.add("active");
                 btnResumeLoop.style.display = "block";
+                setViewerFooterCompact(false);
                 setSystemStatus("Detección Mostrada", "green");
                 setOverlay(false);
                 
@@ -200,10 +249,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 timelineProgressBar.style.width = "0%";
                 timeIndicator.innerHTML = "Timelapse detenido. Importe una imagen para analizar.";
                 btnResumeLoop.style.display = "none";
+                setViewerFooterCompact(true);
                 resetDetectionProgress();
                 break;
         }
     }
+
+    setViewerFooterCompact(true);
 
     // 5. Controladores de Tiempo (Timers)
     function startTimelapseTimer(duration) {
@@ -296,8 +348,8 @@ document.addEventListener("DOMContentLoaded", () => {
         // Enviar al servidor
         sendDetectionRequest({
             image: base64Image,
-            threshold: 0.60,
-            low_threshold: 0.28
+            threshold: THRESHOLD_MIN,
+            low_threshold: THRESHOLD_LOW
         });
     }
 
@@ -391,8 +443,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 // Enviar la imagen optimizada
                 sendDetectionRequest({
                     image: base64Image,
-                    threshold: 0.60,
-                    low_threshold: 0.28
+                    threshold: THRESHOLD_MIN,
+                    low_threshold: THRESHOLD_LOW
                 });
             };
 
@@ -449,29 +501,8 @@ document.addEventListener("DOMContentLoaded", () => {
             activateLegendGlow("gray");
         }
         
-        // 4. Actualizar Barra de Confianza Lineal Premium
-        const statLinearPercent = document.getElementById("stat-linear-percent");
-        const statLinearBar = document.getElementById("stat-linear-bar");
-        
-        if (statLinearPercent && statLinearBar) {
-            statLinearPercent.innerText = `${percent}%`;
-            statLinearBar.style.width = `${percent}%`;
-            
-            // Cambiar color y efectos visuales de la barra lineal según veredicto
-            if (data.verdict === "Ojo Detectado") {
-                statLinearBar.style.background = "linear-gradient(90deg, var(--color-primary), var(--color-success))";
-                statLinearPercent.style.color = "var(--color-success)";
-                statLinearBar.style.boxShadow = "0 0 10px rgba(16, 185, 129, 0.4)";
-            } else if (data.verdict === "Coincidencia Baja") {
-                statLinearBar.style.background = "linear-gradient(90deg, var(--color-warning), var(--color-danger))";
-                statLinearPercent.style.color = "var(--color-danger)";
-                statLinearBar.style.boxShadow = "0 0 10px rgba(239, 68, 68, 0.4)";
-            } else {
-                statLinearBar.style.background = "var(--text-muted)";
-                statLinearPercent.style.color = "var(--text-muted)";
-                statLinearBar.style.boxShadow = "none";
-            }
-        }
+        // 4. Barra 0–100% debajo de la leyenda (posición real + zonas por umbral)
+        updateThresholdProgressBar(data.verdict, score);
     }
 
     function activateLegendGlow(activeType) {
@@ -495,6 +526,56 @@ document.addEventListener("DOMContentLoaded", () => {
             legendGray.parentElement.style.opacity = "1";
         }
     }
+
+    /**
+     * Barra continua 0–100%: el marcador va al % real de confianza.
+     * Zonas: [0, Low) gris | [Low, Min) rojo | [Min, 100] verde.
+     */
+    function updateThresholdProgressBar(verdict, score) {
+        if (!thresholdMarker || !thresholdProgressValue) return;
+
+        const rawPct = score * 100;
+        const displayPct = Math.max(0, Math.min(100, Math.round(rawPct)));
+        const markerLeft = Math.max(0, Math.min(100, rawPct));
+
+        thresholdProgressValue.textContent = `${displayPct}%`;
+        thresholdProgressValue.classList.remove("state-eye", "state-low", "state-none");
+        thresholdMarker.classList.remove("marker-eye", "marker-low", "marker-none");
+
+        [tpZoneNone, tpZoneLow, tpZoneEye].forEach((z) => z && z.classList.remove("active"));
+        [tpLabelNone, tpLabelLow, tpLabelEye].forEach((l) => l && l.classList.remove("active"));
+
+        let markerColor = "var(--text-muted)";
+        let markerRing = "rgba(148, 163, 184, 0.8)";
+
+        if (score >= THRESHOLD_MIN || verdict === "Ojo Detectado") {
+            thresholdProgressValue.classList.add("state-eye");
+            thresholdMarker.classList.add("marker-eye");
+            tpZoneEye && tpZoneEye.classList.add("active");
+            tpLabelEye && tpLabelEye.classList.add("active");
+            markerColor = "var(--color-success)";
+            markerRing = "var(--color-success)";
+        } else if (score >= THRESHOLD_LOW || verdict === "Coincidencia Baja") {
+            thresholdProgressValue.classList.add("state-low");
+            thresholdMarker.classList.add("marker-low");
+            tpZoneLow && tpZoneLow.classList.add("active");
+            tpLabelLow && tpLabelLow.classList.add("active");
+            markerColor = "var(--color-danger)";
+            markerRing = "var(--color-danger)";
+        } else {
+            thresholdProgressValue.classList.add("state-none");
+            thresholdMarker.classList.add("marker-none");
+            tpZoneNone && tpZoneNone.classList.add("active");
+            tpLabelNone && tpLabelNone.classList.add("active");
+        }
+
+        thresholdMarker.style.left = `${markerLeft}%`;
+        thresholdMarker.style.background = markerColor;
+        thresholdMarker.style.boxShadow =
+            `0 0 0 2px ${markerRing}, 0 2px 10px rgba(0,0,0,0.45)`;
+    }
+
+    updateThresholdProgressBar("Esperando Detección...", 0);
 
     // 8. Elementos Auxiliares de Interfaz
     function setOverlay(show, text = "", showSpinner = false) {
