@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Sistema de Detección de Ojos</title>
+    <meta name="description" content="Dashboard en tiempo real para la detección automatizada de ojos con IA.">
+    <!-- Google Fonts: Outfit (títulos) e Inter (cuerpo) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <!-- Hojas de estilos -->
+    <link rel="stylesheet" href="../static/css/styles.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Encabezado de la Aplicación -->
+        <header class="app-header">
+            <div class="header-logo">
+                <div class="logo-pulse"></div>
+                <h1>SISTEMA DE DETECCIÓN DE OJOS</h1>
+            </div>
+            <div class="system-badge" id="system-status-badge">
+                <span class="status-dot green"></span>
+                <span id="system-status-text">Cámara Activa</span>
+            </div>
+        </header>
+
+        <!-- Cuadrícula Principal -->
+        <main class="dashboard-grid">
+
+            <!-- Panel Izquierdo: Visualización de Cámara y Resultados -->
+            <section class="viewer-card card">
+                <div class="card-header">
+                    <h2>Visualización en Tiempo Real</h2>
+                    <div class="viewer-actions">
+                        <label for="image-import-input" class="btn btn-secondary" id="import-btn-label">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
+                            </svg>
+                            Importar Imagen
+                        </label>
+                        <input type="file" id="image-import-input" accept="image/*" style="display: none;">
+                        <button class="btn btn-primary" id="btn-manual-capture">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10" />
+                                <circle cx="12" cy="12" r="3" />
+                            </svg>
+                            Capturar Ahora
+                        </button>
+                    </div>
+                </div>
+
+                <div class="viewport-wrapper">
+                    <!-- Stream de Cámara en Vivo -->
+                    <video id="webcam-stream" autoplay playsinline muted class="viewport-element active"></video>
+
+                    <!-- Imagen de Resultado Congelada (Caja de detección) -->
+                    <div id="result-overlay-container" class="viewport-element">
+                        <img id="result-image" alt="Resultado de Detección" src="">
+                    </div>
+
+                    <!-- Mensajes Informativos Encima de la Pantalla -->
+                    <div class="viewport-status-overlay" id="viewport-overlay-msg">
+                        <div class="overlay-spinner" id="overlay-loader" style="display: none;"></div>
+                        <span id="overlay-text">Inicializando cámara...</span>
+                    </div>
+
+                    <!-- Barra de progreso del Timelapse -->
+                    <div class="timeline-container">
+                        <div class="timeline-bar" id="timeline-progress-bar"></div>
+                    </div>
+                </div>
+
+                <!-- Footer del visor con indicador de estado rápido -->
+                <div class="viewer-footer">
+                    <p id="time-indicator">Siguiente captura automática en: <strong>5.0s</strong></p>
+                    <button class="btn btn-text" id="btn-resume-loop" style="display: none;">
+                        Omitir espera y reanudar cámara
+                    </button>
+                </div>
+            </section>
+
+            <!-- Panel Derecho: Estadísticas y Controles -->
+            <aside class="sidebar-grid">
+
+                <!-- Tarjeta de Estadísticas de Detección -->
+                <section class="stats-card card">
+                    <div class="card-header">
+                        <h2>Estadísticas de Detección</h2>
+                    </div>
+
+                    <div class="stats-content">
+                        <!-- Score Grande -->
+                        <div class="gauge-section">
+                            <div class="score-display">
+                                <span class="score-label">Confianza Máxima</span>
+                                <span class="score-value" id="stat-max-score">0.0000</span>
+                                <span class="score-percent" id="stat-max-percent">0.0%</span>
+                            </div>
+                            <div class="radial-progress-wrapper">
+                                <svg class="radial-progress" viewBox="0 0 36 36">
+                                    <path class="circle-bg"
+                                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                                    <path class="circle" id="stat-radial-progress" stroke-dasharray="0, 100"
+                                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                                </svg>
+                            </div>
+                        </div>
+
+                        <!-- Barra de Confianza Lineal -->
+                        <div class="confidence-bar-wrapper">
+                            <div class="confidence-bar-header">
+                                <span class="confidence-bar-label">Porcentaje de Confianza</span>
+                                <span class="confidence-bar-value" id="stat-linear-percent">0.0%</span>
+                            </div>
+                            <div class="confidence-bar-track">
+                                <div class="confidence-bar-fill" id="stat-linear-bar" style="width: 0%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Veredicto del Estado -->
+                        <div class="verdict-banner neutral" id="stat-verdict-banner">
+                            <span class="verdict-icon" id="stat-verdict-icon"></span>
+                            <div class="verdict-text-wrapper">
+                                <span class="verdict-title">Veredicto General</span>
+                                <span class="verdict-desc" id="stat-verdict-desc">Esperando Detección...</span>
+                            </div>
+                        </div>
+
+
+                        <!-- Leyenda de colores del sistema -->
+                        <div class="legend-container">
+                            <div class="legend-item">
+                                <div class="legend-color-box green-box" id="legend-green-indicator"></div>
+                                <div class="legend-info">
+                                    <span class="legend-name">Ojo Detectado</span>
+                                    <span class="legend-desc">Confianza &ge; Umbral Min</span>
+                                </div>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color-box red-box" id="legend-red-indicator"></div>
+                                <div class="legend-info">
+                                    <span class="legend-name">Coincidencia Baja</span>
+                                    <span class="legend-desc">Umbral Low &le; Confianza &lt; Umbral Min</span>
+                                </div>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color-box gray-box" id="legend-gray-indicator"></div>
+                                <div class="legend-info">
+                                    <span class="legend-name">No se detecta / Fallback</span>
+                                    <span class="legend-desc">Confianza &lt; Umbral Low (Sin cajas)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Tarjeta de Progreso de Detección -->
+                <section class="controls-card card">
+                    <div class="card-header">
+                        <h2>Progreso de Detección</h2>
+                    </div>
+
+                    <div class="controls-content">
+                        <span class="slider-help">Muestra el avance del análisis de la imagen y validación con el modelo ONNX.</span>
+                        <div class="detection-progress-container" style="display: flex; align-items: center; gap: 14px; margin-top: 8px;">
+                            <div class="detection-progress-track">
+                                <div class="detection-progress-fill" id="detection-progress-bar" style="width: 0%;"></div>
+                            </div>
+                            <span class="detection-progress-value" id="detection-progress-percent">0%</span>
+                        </div>
+                    </div>
+                </section>
+
+            </aside>
+        </main>
+    </div>
+
+    <!-- Script del Dashboard -->
+    <script src="../static/js/app.js"></script>
+</body>
+
+</html>

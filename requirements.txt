@@ -1,0 +1,8 @@
+numpy
+opencv-python
+onnxruntime
+onnx
+tensorflow
+tf2onnx
+flask
+flask-cors
