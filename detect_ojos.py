@@ -12,14 +12,16 @@ def load_cascade_classifiers():
     face_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
     eye_path = os.path.join(cv2.data.haarcascades, "haarcascade_eye.xml")
     eye_glass_path = os.path.join(cv2.data.haarcascades, "haarcascade_eye_tree_eyeglasses.xml")
+    cat_face_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalcatface.xml")
     
-    if not os.path.exists(face_path) or not os.path.exists(eye_path) or not os.path.exists(eye_glass_path):
+    if not os.path.exists(face_path) or not os.path.exists(eye_path) or not os.path.exists(eye_glass_path) or not os.path.exists(cat_face_path):
         raise FileNotFoundError("No se pudieron localizar los archivos Haar Cascade en la instalación de OpenCV.")
         
     face_cascade = cv2.CascadeClassifier(face_path)
     eye_cascade = cv2.CascadeClassifier(eye_path)
     eye_glass_cascade = cv2.CascadeClassifier(eye_glass_path)
-    return face_cascade, eye_cascade, eye_glass_cascade
+    cat_face_cascade = cv2.CascadeClassifier(cat_face_path)
+    return face_cascade, eye_cascade, eye_glass_cascade, cat_face_cascade
 
 def evaluate_crop_internal(img, x, y, w, h, session, input_name, output_name):
     """
@@ -99,20 +101,18 @@ def detect_and_draw_eyes(image_path, model_path, threshold=DEFAULT_THRESHOLD, lo
         
     img_display = img_bgr.copy()
     h_img, w_img, _ = img_bgr.shape
-    
-    # Intentar detectar usando Haar Cascades
-    face_cascade, eye_cascade, eye_glass_cascade = load_cascade_classifiers()
+    face_cascade, eye_cascade, eye_glass_cascade, cat_face_cascade = load_cascade_classifiers()
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     
-    # Detector de rostros más relajado para detectar rostros pequeños, oscuros o levemente rotados
+    # Detectores de rostros (humanos y felinos)
     faces = face_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=4, minSize=(60, 60))
+    cat_faces = cat_face_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=3, minSize=(50, 50))
     
     all_eye_candidates = [] # Lista de (x, y, w, h)
     
-    # Buscar ojos dentro de rostros primero si se detectan
+    # Buscar ojos dentro de rostros humanos primero si se detectan
     if len(faces) > 0:
         for (fx, fy, fw, fh) in faces:
-            # Los ojos suelen estar en la mitad superior de la cara (65% superior)
             roi_gray = gray[fy:fy + int(fh*0.65), fx:fx + fw]
             
             # Detectar con clasificador estándar con parámetros más sensibles dentro del ROI
@@ -132,14 +132,23 @@ def detect_and_draw_eyes(image_path, model_path, threshold=DEFAULT_THRESHOLD, lo
             eyes_glass = eye_glass_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
             for (ex, ey, ew, eh) in eyes_glass:
                 all_eye_candidates.append((ex, ey, ew, eh))
-    else:
-        # Si no hay cara detectada, buscar ojos en toda la imagen con ambos clasificadores
-        # Usamos parámetros más estrictos para el escaneo global a fin de mitigar falsos positivos
-        eyes_std = eye_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(25, 25))
+
+    # Buscar ojos en rostros de mascotas (gatos/animales)
+    if len(cat_faces) > 0:
+        for (cx, cy, cw, ch) in cat_faces:
+            roi_gray = gray[cy:cy + int(ch*0.60), cx:cx + cw]
+            eyes_std = eye_cascade.detectMultiScale(roi_gray, scaleFactor=1.04, minNeighbors=1, minSize=(10, 10))
+            for (ex, ey, ew, eh) in eyes_std:
+                all_eye_candidates.append((cx + ex, cy + ey, ew, eh))
+
+    # Si no hay caras de ningún tipo, buscar ojos en toda la imagen con clasificadores sensibles
+    # Dejamos que la CNN valide con precisión los verdaderos ojos
+    if len(all_eye_candidates) == 0 and len(faces) == 0 and len(cat_faces) == 0:
+        eyes_std = eye_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=2, minSize=(15, 15))
         for (ex, ey, ew, eh) in eyes_std:
             all_eye_candidates.append((ex, ey, ew, eh))
             
-        eyes_glass = eye_glass_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(25, 25))
+        eyes_glass = eye_glass_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=2, minSize=(15, 15))
         for (ex, ey, ew, eh) in eyes_glass:
             all_eye_candidates.append((ex, ey, ew, eh))
             
@@ -156,18 +165,24 @@ def detect_and_draw_eyes(image_path, model_path, threshold=DEFAULT_THRESHOLD, lo
             unique_candidates.append((x, y, w, h))
     all_eye_candidates = unique_candidates
 
-    if len(faces) > 0 and len(all_eye_candidates) > 0:
+    # Descartar candidatos fuera de rostros detectados (humano o mascota) si alguno está presente
+    has_any_face = (len(faces) > 0 or len(cat_faces) > 0)
+    if has_any_face and len(all_eye_candidates) > 0:
         filtered = []
         for (x, y, w, h) in all_eye_candidates:
             cx, cy = x + w / 2, y + h / 2
             inside_face = False
+            # Verificar cara humana
             for (fx, fy, fw, fh) in faces:
-                if (
-                    fx - 10 <= cx <= fx + fw + 10
-                    and fy - 10 <= cy <= fy + int(fh * 0.72)
-                ):
+                if (fx - 15 <= cx <= fx + fw + 15 and fy - 15 <= cy <= fy + int(fh * 0.75)):
                     inside_face = True
                     break
+            # Verificar cara felina
+            if not inside_face:
+                for (cx_f, cy_f, cw_f, ch_f) in cat_faces:
+                    if (cx_f - 15 <= cx <= cx_f + cw_f + 15 and cy_f - 15 <= cy <= cy_f + int(ch_f * 0.75)):
+                        inside_face = True
+                        break
             if inside_face:
                 filtered.append((x, y, w, h))
         all_eye_candidates = filtered
