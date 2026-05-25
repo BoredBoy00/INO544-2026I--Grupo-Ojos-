@@ -1,13 +1,64 @@
+import sys
+import io
+# Evitar errores de codificación de caracteres especiales/emojis en la consola de Windows
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 import os
 import glob
 import cv2
 import numpy as np
-import onnx
-from onnx import helper, TensorProto
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
-TRAIN_SIZE = (24, 24)
+# Dimensiones acordes a la pizarra
 INFER_SIZE = 224
 RNG = np.random.default_rng(42)
+
+# --- ARQUITECTURA DE LA CNN EN PYTORCH ---
+class EyeCNN(nn.Module):
+    def __init__(self):
+        super(EyeCNN, self).__init__()
+        # Entrada del modelo ONNX (cam_input): [1, 224, 224, 3] (NHWC)
+        # Reducción/Submuestreo interno adaptativo a 48x48 para asegurar entrenamiento e inferencia veloces en CPU
+        self.downsample = nn.AdaptiveAvgPool2d((48, 48))
+        
+        # Capa Convolucional 1
+        self.conv1 = nn.Conv2d(3, 8, kernel_size=3, padding=1)
+        self.relu1 = nn.ReLU()
+        self.pool1 = nn.MaxPool2d(2, 2)  # Output: [Batch, 8, 24, 24]
+        
+        # Capa Convolucional 2
+        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)
+        self.relu2 = nn.ReLU()
+        self.pool2 = nn.MaxPool2d(2, 2)  # Output: [Batch, 16, 12, 12]
+        
+        # Capa Convolucional 3
+        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.relu3 = nn.ReLU()
+        self.pool3 = nn.MaxPool2d(2, 2)  # Output: [Batch, 32, 6, 6]
+        
+        # Capa Totalmente Conectada (Clasificador lineal)
+        self.fc = nn.Linear(32 * 6 * 6, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # x: [Batch, 224, 224, 3]
+        # Transponer dimensiones de NHWC a NCHW para PyTorch: [Batch, 3, 224, 224]
+        x = x.permute(0, 3, 1, 2)
+        # Submuestrear
+        x = self.downsample(x)
+        # Convoluciones
+        x = self.pool1(self.relu1(self.conv1(x)))
+        x = self.pool2(self.relu2(self.conv2(x)))
+        x = self.pool3(self.relu3(self.conv3(x)))
+        # Aplanar
+        x = x.reshape(x.size(0), -1)
+        # Capa densa y Sigmoid
+        x = self.fc(x)
+        x = self.sigmoid(x)
+        return x
 
 
 def is_overlapping(box1, box2, margin=10):
@@ -38,14 +89,10 @@ def crop_bgr_to_rgb(img_bgr, x, y, w, h):
     return cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
 
 
-def rgb_to_gray(img_rgb):
-    return 0.299 * img_rgb[:, :, 0] + 0.587 * img_rgb[:, :, 1] + 0.114 * img_rgb[:, :, 2]
-
-
-def patch_to_features(crop_rgb):
-    low_rgb = cv2.resize(crop_rgb, TRAIN_SIZE).astype(np.float32) / 255.0
-    low_gray = rgb_to_gray(low_rgb)
-    return low_gray.flatten()
+def patch_to_features_cnn(crop_rgb):
+    # Redimensionar a [224, 224, 3] en RGB y normalizar a [0.0, 1.0]
+    resized_rgb = cv2.resize(crop_rgb, (INFER_SIZE, INFER_SIZE)).astype(np.float32) / 255.0
+    return resized_rgb
 
 
 def load_extra_negatives(neg_dir="./Ojos_negativos"):
@@ -213,10 +260,12 @@ def load_dataset(ojos_dir="./Ojos"):
             f"Muy pocos positivos ({pos_count}). Añade más imágenes con ojos visibles en ./Ojos/"
         )
 
-    X_pos = np.array([patch_to_features(c) for c in pos_crops], dtype=np.float32)
-    X_neg = np.array([patch_to_features(c) for c in neg_crops], dtype=np.float32)
+    # Extraer parches de imagen y convertirlos en arrays RGB de 224x224x3 normalizados
+    print("[*] Redimensionando y preprocesando parches a 224x224x3...")
+    X_pos = np.array([patch_to_features_cnn(c) for c in pos_crops], dtype=np.float32)
+    X_neg = np.array([patch_to_features_cnn(c) for c in neg_crops], dtype=np.float32)
 
-    X = np.vstack((X_pos, X_neg))
+    X = np.concatenate((X_pos, X_neg), axis=0)
     y = np.vstack(
         (
             np.ones((pos_count, 1), dtype=np.float32),
@@ -224,226 +273,124 @@ def load_dataset(ojos_dir="./Ojos"):
         )
     )
 
+    return X, y
+
+
+def train_cnn(X, y, epochs=15, lr=0.001, batch_size=32):
+    # Mezclar el dataset completo antes de separar
     indices = np.arange(X.shape[0])
     RNG.shuffle(indices)
     X = X[indices]
     y = y[indices]
 
-    # Mezclar listas de crops para calibración (misma semilla)
-    all_crops = pos_crops + neg_crops
-    crop_labels = [1] * pos_count + [0] * neg_count
-    perm = np.arange(len(all_crops))
-    RNG.shuffle(perm)
-    cal_crops = [all_crops[i] for i in perm]
-    cal_labels = [crop_labels[i] for i in perm]
+    # --- IMPLEMENTACIÓN DEL SPLIT 80/20 TRAIN/TEST ---
+    split_idx = int(0.8 * X.shape[0])
+    X_train, X_val = X[:split_idx], X[split_idx:]
+    y_train, y_val = y[:split_idx], y[split_idx:]
 
-    return X, y, cal_crops, cal_labels
+    print(f"\n[*] --- Configuración del Split 80/20 ---")
+    print(f"    Total de muestras:    {X.shape[0]}")
+    print(f"    Muestras Entrenamiento (80%): {X_train.shape[0]}")
+    print(f"    Muestras Validación (20%):   {X_val.shape[0]}")
 
+    model = EyeCNN()
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
-def sigmoid(z):
-    return 1.0 / (1.0 + np.exp(-np.clip(z, -500, 500)))
+    num_samples = X_train.shape[0]
 
-
-def train_classifier(X, y, epochs=250, lr=0.08, lambda_reg=0.04):
-    m, n = X.shape
-    print(f"[*] Entrenando clasificador (muestras: {m}, dims: {n})...")
-
-    W = np.zeros((n, 1), dtype=np.float32)
-    b = np.zeros((1, 1), dtype=np.float32)
-
+    print("\n[*] Entrenando la Red Neuronal Convolucional (CNN)...")
     for epoch in range(1, epochs + 1):
-        z = np.dot(X, W) + b
-        a = sigmoid(z)
-        loss = (
-            -np.mean(y * np.log(a + 1e-15) + (1.0 - y) * np.log(1.0 - a + 1e-15))
-            + (lambda_reg / (2 * m)) * np.sum(W ** 2)
+        model.train()
+        epoch_loss = 0.0
+        correct = 0
+        total = 0
+        
+        # Mezclar para cada época
+        perm = torch.randperm(num_samples)
+        X_train_t = torch.tensor(X_train[perm])
+        y_train_t = torch.tensor(y_train[perm])
+        
+        for i in range(0, num_samples, batch_size):
+            x_batch = X_train_t[i : i + batch_size]
+            y_batch = y_train_t[i : i + batch_size]
+            
+            optimizer.zero_grad()
+            outputs = model(x_batch)
+            loss = criterion(outputs, y_batch)
+            loss.backward()
+            optimizer.step()
+            
+            epoch_loss += loss.item() * x_batch.size(0)
+            preds = (outputs > 0.5).float()
+            correct += (preds == y_batch).sum().item()
+            total += x_batch.size(0)
+            
+        train_loss = epoch_loss / num_samples
+        train_acc = (correct / total) * 100.0
+        
+        # Evaluación en conjunto de validación
+        model.eval()
+        with torch.no_grad():
+            X_val_t = torch.tensor(X_val)
+            y_val_t = torch.tensor(y_val)
+            val_outputs = model(X_val_t)
+            val_loss = criterion(val_outputs, y_val_t).item()
+            val_preds = (val_outputs > 0.5).float()
+            val_correct = (val_preds == y_val_t).sum().item()
+            val_acc = (val_correct / X_val_t.size(0)) * 100.0
+            
+        print(
+            f"    Época {epoch:02d}/{epochs:02d} | "
+            f"Loss Train: {train_loss:.5f} | Acc Train: {train_acc:.2f}% | "
+            f"Loss Val: {val_loss:.5f} | Acc Val: {val_acc:.2f}%"
         )
-        dz = a - y
-        dW = (1.0 / m) * np.dot(X.T, dz) + (lambda_reg / m) * W
-        db = (1.0 / m) * np.sum(dz, axis=0, keepdims=True)
-        W -= lr * dW
-        b -= lr * db
 
-        predictions = (a > 0.5).astype(np.float32)
-        accuracy = np.mean(predictions == y) * 100.0
-
-        if epoch % 25 == 0 or epoch == 1:
-            print(
-                f"    Época {epoch:03d}/{epochs:03d} | "
-                f"Pérdida: {loss:.6f} | Precisión: {accuracy:.2f}%"
-            )
-
-    print("[+] Entrenamiento completado.")
-    return W, b
+    print("[+] Entrenamiento de CNN completado.")
+    return model
 
 
-def build_weight_vector(W_low):
-    """Pesos ONNX sin calibración A/B (solo escala 24→224)."""
-    W_img = W_low.reshape(TRAIN_SIZE)
-    W_up = cv2.resize(W_img, (INFER_SIZE, INFER_SIZE), interpolation=cv2.INTER_LINEAR)
-    W_3d = np.zeros((INFER_SIZE, INFER_SIZE, 3), dtype=np.float32)
-    W_3d[:, :, 0] = 0.299 * W_up
-    W_3d[:, :, 1] = 0.587 * W_up
-    W_3d[:, :, 2] = 0.114 * W_up
-    D = INFER_SIZE / float(TRAIN_SIZE[0])
-    scale_factor = 1.0 / (D ** 2)
-    return (W_3d.flatten() * scale_factor).astype(np.float32)
-
-
-def score_crop_224(crop_rgb, W_vec, b_scalar):
-    """Misma lógica que app.py / ONNX en inferencia."""
-    resized = cv2.resize(crop_rgb, (INFER_SIZE, INFER_SIZE)).astype(np.float32) / 255.0
-    flat = resized.flatten()
-    logit = float(np.dot(flat, W_vec) + b_scalar)
-    return sigmoid(logit), logit
-
-
-def compute_calibration(W_low, b_raw, cal_crops, cal_labels):
-    """
-    Calibra A y B en logit' = A * logit + B usando parches a 224×224
-    (idéntico al pipeline de la cámara).
-    """
-    W_base = build_weight_vector(W_low)
-    b_base = float(b_raw[0][0])
-
-    pos_logits = []
-    neg_logits = []
-    for crop, label in zip(cal_crops, cal_labels):
-        _, logit = score_crop_224(crop, W_base, b_base)
-        if label == 1:
-            pos_logits.append(logit)
-        else:
-            neg_logits.append(logit)
-
-    if not pos_logits or not neg_logits:
-        print("[!] Calibración: datos insuficientes, usando valores por defecto.")
-        return 2.5, 0.0
-
-    mu_pos = float(np.median(pos_logits))
-    mu_neg = float(np.median(neg_logits))
-    p95_neg = float(np.percentile(neg_logits, 95))
-    target_pos = 6.0
-    target_neg = -6.0
-
-    spread = mu_pos - mu_neg
-    if abs(spread) < 0.05:
-        print("[!] Positivos y negativos muy solapados en logit; revisar dataset.")
-        A, B = 2.0, 0.0
-    else:
-        A = (target_pos - target_neg) / spread
-        B_median = target_pos - A * mu_pos
-        target_p95_score = 0.12
-        target_p95_logit = float(np.log(target_p95_score / (1.0 - target_p95_score)))
-        B_strict = target_p95_logit - A * p95_neg
-
-        def metrics_for_b(b_val):
-            pos_s = [sigmoid(A * lp + b_val) for lp in pos_logits]
-            neg_s = [sigmoid(A * ln + b_val) for ln in neg_logits]
-            return float(np.median(pos_s)), float(np.percentile(neg_s, 95))
-
-        med_m, p95_m = metrics_for_b(B_median)
-        med_s, p95_s = metrics_for_b(B_strict)
-
-        # Priorizar ojos >0.92; si el ajuste estricto lo rompe, usar mezcla
-        if med_s >= 0.92 and p95_s <= 0.15:
-            B = B_strict
-        elif med_m >= 0.92 and p95_m <= 0.20:
-            B = B_median
-        else:
-            B = 0.6 * B_median + 0.4 * B_strict
-
-    def cal_score(crop):
-        _, raw = score_crop_224(crop, W_base, b_base)
-        return sigmoid(A * raw + B)
-
-    pos_scores = [cal_score(c) for c, l in zip(cal_crops, cal_labels) if l == 1]
-    neg_scores = [cal_score(c) for c, l in zip(cal_crops, cal_labels) if l == 0]
-
-    print("[*] --- Calibración 224×224 (validación interna) ---")
-    print(f"    Logit mediano ojo:     {mu_pos:.4f}")
-    print(f"    Logit mediano no-ojo:  {mu_neg:.4f}")
-    print(f"    Logit p95 no-ojo:      {p95_neg:.4f}")
-    print(f"    A={A:.4f}, B={B:.4f}")
-    print(f"    Score mediano ojo:     {np.median(pos_scores):.4f}")
-    print(f"    Score mediano no-ojo:  {np.median(neg_scores):.4f}")
-    print(f"    Score p95 no-ojo:      {np.percentile(neg_scores, 95):.4f}")
-
-    return A, B
-
-
-def export_to_onnx(W_low, b, cal_crops, cal_labels, output_path="./model/tu_modelo.onnx"):
-    A, B = compute_calibration(W_low, b, cal_crops, cal_labels)
-
-    W_base = build_weight_vector(W_low)
-    W_final = (W_base * A).reshape(-1, 1)
-    b_calibrated = float(b[0][0]) * A + B
-
-    print(f"[*] Exportando ONNX a '{output_path}'")
+def export_to_onnx(model, output_path="./model/tu_modelo.onnx"):
+    print(f"\n[*] Exportando modelo CNN a formato ONNX en '{output_path}'...")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    cam_input = helper.make_tensor_value_info(
-        "cam_input", TensorProto.FLOAT, [1, INFER_SIZE, INFER_SIZE, 3]
-    )
-    confidence_score = helper.make_tensor_value_info(
-        "confidence_score", TensorProto.FLOAT, [1, 1]
-    )
-
-    w_initializer = helper.make_tensor(
-        name="model_weights",
-        data_type=TensorProto.FLOAT,
-        dims=[INFER_SIZE * INFER_SIZE * 3, 1],
-        vals=W_final.flatten().tolist(),
-    )
-    b_initializer = helper.make_tensor(
-        name="model_bias",
-        data_type=TensorProto.FLOAT,
-        dims=[1],
-        vals=[b_calibrated],
-    )
-
-    flatten_node = helper.make_node(
-        "Flatten", inputs=["cam_input"], outputs=["flat_input"], axis=1
-    )
-    matmul_node = helper.make_node(
-        "MatMul", inputs=["flat_input", "model_weights"], outputs=["matmul_out"]
-    )
-    add_node = helper.make_node(
-        "Add", inputs=["matmul_out", "model_bias"], outputs=["logits"]
-    )
-    sigmoid_node = helper.make_node(
-        "Sigmoid", inputs=["logits"], outputs=["confidence_score"]
-    )
-
-    graph_def = helper.make_graph(
-        nodes=[flatten_node, matmul_node, add_node, sigmoid_node],
-        name="EyeClassifierNetwork",
-        inputs=[cam_input],
-        outputs=[confidence_score],
-        initializer=[w_initializer, b_initializer],
-    )
-
-    opset = helper.make_operatorsetid("", 12)
-    model_def = helper.make_model(
-        graph_def, producer_name="numpy-eye-trainer-v2", opset_imports=[opset]
-    )
+    model.eval()
+    # Dummy input de tamaño [1, 224, 224, 3] en formato float32 como requiere la pizarra
+    dummy_input = torch.zeros(1, INFER_SIZE, INFER_SIZE, 3, dtype=torch.float32)
 
     try:
-        onnx.checker.check_model(model_def)
-        print("[+] Grafo ONNX válido.")
+        torch.onnx.export(
+            model,
+            dummy_input,
+            output_path,
+            export_params=True,
+            opset_version=12,  # Especificado por la pizarra como versión v12+
+            do_constant_folding=True,
+            input_names=["cam_input"],
+            output_names=["confidence_score"],
+            dynamic_axes={
+                "cam_input": {0: "batch_size"},
+                "confidence_score": {0: "batch_size"}
+            }
+        )
+        print("[+] Grafo ONNX generado e importado exitosamente.")
+        
+        # Validar el modelo usando la API de ONNX
+        import onnx
+        onnx_model = onnx.load(output_path)
+        onnx.checker.check_model(onnx_model)
+        print("[+] Validación de ONNX completada: Grafo sintáctica y estructuralmente válido.")
+        return True
     except Exception as e:
-        print(f"[ERROR] Validación ONNX: {e}")
+        print(f"[ERROR] Fallo al exportar/validar ONNX: {e}")
         return False
-
-    onnx.save(model_def, output_path)
-    print(f"[+] Modelo guardado en '{output_path}'")
-    return True
 
 
 def main():
     try:
-        X, y, cal_crops, cal_labels = load_dataset()
-        W, b = train_classifier(X, y)
-        export_to_onnx(W, b, cal_crops, cal_labels)
+        X, y = load_dataset()
+        model = train_cnn(X, y, epochs=20, lr=0.001, batch_size=32)
+        export_to_onnx(model)
     except Exception as e:
         print(f"[ERROR] {e}")
         raise
