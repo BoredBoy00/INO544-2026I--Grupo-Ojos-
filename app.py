@@ -52,6 +52,74 @@ except Exception as e:
     print(f"[!] Error al cargar el modelo ONNX: {e}")
 
 
+def apply_clahe_color(crop_bgr):
+    """
+    Aplica CLAHE al canal de luminosidad (L) en el espacio de color LAB
+    para mejorar el contraste adaptativo sin distorsionar los colores del parche.
+    """
+    if crop_bgr.shape[0] < 5 or crop_bgr.shape[1] < 5:
+        return crop_bgr
+    try:
+        lab = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2LAB)
+        l_channel, a_channel, b_channel = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        cl = clahe.apply(l_channel)
+        merged = cv2.merge((cl, a_channel, b_channel))
+        enhanced_bgr = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+        return enhanced_bgr
+    except Exception:
+        return crop_bgr
+
+
+def non_max_suppression_iou(detections, iou_threshold=0.35):
+    """
+    Aplica Non-Maximum Suppression (NMS) usando IoU (Intersection over Union).
+    detections: lista de tuplas (x, y, w, h, score)
+    """
+    if len(detections) == 0:
+        return []
+        
+    # Ordenar por score descendente
+    detections = sorted(detections, key=lambda x: x[4], reverse=True)
+    
+    keep = []
+    while len(detections) > 0:
+        best = detections[0]
+        keep.append(best)
+        
+        if len(detections) == 1:
+            break
+            
+        remaining = []
+        bx, by, bw, bh, _ = best
+        best_area = bw * bh
+        
+        for item in detections[1:]:
+            ix, iy, iw, ih, _ = item
+            # Calcular intersección
+            x1 = max(bx, ix)
+            y1 = max(by, iy)
+            x2 = min(bx + bw, ix + iw)
+            y2 = min(by + bh, iy + ih)
+            
+            inter_w = max(0, x2 - x1)
+            inter_h = max(0, y2 - y1)
+            inter_area = inter_w * inter_h
+            
+            # Calcular unión
+            item_area = iw * ih
+            union_area = best_area + item_area - inter_area
+            
+            iou = inter_area / union_area if union_area > 0 else 0.0
+            
+            if iou <= iou_threshold:
+                remaining.append(item)
+                
+        detections = remaining
+        
+    return keep
+
+
 def evaluate_crop_internal(img, x, y, w, h):
     """
     Extrae, redimensiona y evalúa un parche de imagen utilizando el modelo ONNX global.
@@ -67,7 +135,9 @@ def evaluate_crop_internal(img, x, y, w, h):
     h1 = int(max(10, min(h, img_h - y1)))
     
     crop = img[y1:y1+h1, x1:x1+w1]
-    crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+    crop_enhanced = apply_clahe_color(crop)
+    
+    crop_rgb = cv2.cvtColor(crop_enhanced, cv2.COLOR_BGR2RGB)
     crop_resized = cv2.resize(crop_rgb, (224, 224))
     
     input_tensor = crop_resized.astype(np.float32) / 255.0
@@ -260,23 +330,34 @@ def detect():
         zero_detections = []  # (x, y, w, h, score)
         
         fallback_score = None
-        for (x, y, w, h) in all_eye_candidates:
-            if fallback_used:
-                # Sin candidatos Haar: evaluar centro sin dibujar cajas
+        if fallback_used:
+            # Sin candidatos Haar: evaluar centro sin dibujar cajas
+            for (x, y, w, h) in all_eye_candidates:
                 score, final_box = evaluate_crop_internal(img_bgr, x, y, w, h)
                 fallback_score = score
                 zero_detections.append((*final_box, score))
-                continue
-            else:
+        else:
+            # Obtener refinamientos de la CNN para cada candidato
+            refined_candidates = []
+            for (x, y, w, h) in all_eye_candidates:
                 score, final_box = refine_box(img_bgr, x, y, w, h)
-
-            fx, fy, fw, fh = final_box
-            if score >= threshold:
-                green_detections.append((fx, fy, fw, fh, score))
-            elif score >= low_threshold:
-                red_detections.append((fx, fy, fw, fh, score))
-            else:
-                zero_detections.append((fx, fy, fw, fh, score))
+                refined_candidates.append((*final_box, score))
+            
+            # Aplicar Supresión de No Máximos (NMS) basado en IoU
+            # Esto eliminará recuadros superpuestos en el mismo ojo y seleccionará el de mayor confianza
+            nms_survivors = non_max_suppression_iou(refined_candidates, iou_threshold=0.20)
+            
+            for (fx, fy, fw, fh, score) in nms_survivors:
+                if score >= threshold:
+                    green_detections.append((fx, fy, fw, fh, score))
+                elif score >= low_threshold:
+                    red_detections.append((fx, fy, fw, fh, score))
+                else:
+                    zero_detections.append((fx, fy, fw, fh, score))
+                    
+            # En caso de que se requiera alguna visualización de descarte, añadir los no supervivientes
+            # a las zero_detections para auditoría si es necesario, pero actualmente zero_detections solo
+            # sirve de fallback.
                     
         has_boxes = (len(green_detections) > 0 or len(red_detections) > 0)
         detections_list = []

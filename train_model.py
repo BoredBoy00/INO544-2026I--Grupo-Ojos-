@@ -21,26 +21,32 @@ class EyeCNN(nn.Module):
     def __init__(self):
         super(EyeCNN, self).__init__()
         # Entrada del modelo ONNX (cam_input): [1, 224, 224, 3] (NHWC)
-        # Reducción/Submuestreo interno adaptativo a 48x48 para asegurar entrenamiento e inferencia veloces en CPU
-        self.downsample = nn.AdaptiveAvgPool2d((48, 48))
+        # Reducción/Submuestreo interno adaptativo a 64x64 para mejor retención de detalles finos
+        self.downsample = nn.AdaptiveAvgPool2d((64, 64))
         
         # Capa Convolucional 1
-        self.conv1 = nn.Conv2d(3, 8, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(16)
         self.relu1 = nn.ReLU()
-        self.pool1 = nn.MaxPool2d(2, 2)  # Output: [Batch, 8, 24, 24]
+        self.pool1 = nn.MaxPool2d(2, 2)  # Output: [Batch, 16, 32, 32]
         
         # Capa Convolucional 2
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(32)
         self.relu2 = nn.ReLU()
-        self.pool2 = nn.MaxPool2d(2, 2)  # Output: [Batch, 16, 12, 12]
+        self.pool2 = nn.MaxPool2d(2, 2)  # Output: [Batch, 32, 16, 16]
         
         # Capa Convolucional 3
-        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
         self.relu3 = nn.ReLU()
-        self.pool3 = nn.MaxPool2d(2, 2)  # Output: [Batch, 32, 6, 6]
+        self.pool3 = nn.MaxPool2d(2, 2)  # Output: [Batch, 64, 8, 8]
+        
+        # Capa de regularización
+        self.dropout = nn.Dropout(0.3)
         
         # Capa Totalmente Conectada (Clasificador lineal)
-        self.fc = nn.Linear(32 * 6 * 6, 1)
+        self.fc = nn.Linear(64 * 8 * 8, 1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -49,13 +55,14 @@ class EyeCNN(nn.Module):
         x = x.permute(0, 3, 1, 2)
         # Submuestrear
         x = self.downsample(x)
-        # Convoluciones
-        x = self.pool1(self.relu1(self.conv1(x)))
-        x = self.pool2(self.relu2(self.conv2(x)))
-        x = self.pool3(self.relu3(self.conv3(x)))
+        # Convoluciones con Normalización de Lote
+        x = self.pool1(self.relu1(self.bn1(self.conv1(x))))
+        x = self.pool2(self.relu2(self.bn2(self.conv2(x))))
+        x = self.pool3(self.relu3(self.bn3(self.conv3(x))))
         # Aplanar
         x = x.reshape(x.size(0), -1)
-        # Capa densa y Sigmoid
+        # Regularización y clasificador
+        x = self.dropout(x)
         x = self.fc(x)
         x = self.sigmoid(x)
         return x
@@ -83,10 +90,30 @@ def clamp_box(x, y, w, h, img_w, img_h):
     return x, y, w, h
 
 
+def apply_clahe_color(crop_bgr):
+    """
+    Aplica CLAHE al canal de luminosidad (L) en el espacio de color LAB
+    para mejorar el contraste adaptativo sin distorsionar los colores del parche.
+    """
+    if crop_bgr.shape[0] < 5 or crop_bgr.shape[1] < 5:
+        return crop_bgr
+    try:
+        lab = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2LAB)
+        l_channel, a_channel, b_channel = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        cl = clahe.apply(l_channel)
+        merged = cv2.merge((cl, a_channel, b_channel))
+        enhanced_bgr = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+        return enhanced_bgr
+    except Exception:
+        return crop_bgr
+
+
 def crop_bgr_to_rgb(img_bgr, x, y, w, h):
     x, y, w, h = clamp_box(x, y, w, h, img_bgr.shape[1], img_bgr.shape[0])
     crop = img_bgr[y : y + h, x : x + w]
-    return cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+    crop_enhanced = apply_clahe_color(crop)
+    return cv2.cvtColor(crop_enhanced, cv2.COLOR_BGR2RGB)
 
 
 def patch_to_features_cnn(crop_rgb):
@@ -170,7 +197,20 @@ def load_dataset(ojos_dir="./Ojos"):
         eye_boxes = [list(box) for box in detected_eyes]
 
         for (ex, ey, ew, eh) in detected_eyes[:2]:
-            pos_crops.append(crop_bgr_to_rgb(img, ex, ey, ew, eh))
+            crop_rgb = crop_bgr_to_rgb(img, ex, ey, ew, eh)
+            pos_crops.append(crop_rgb)
+            
+            # --- AUMENTO DE DATOS DINÁMICO ---
+            # 1. Volteo Horizontal (Simula ojos del lado opuesto)
+            flipped = cv2.flip(crop_rgb, 1)
+            pos_crops.append(flipped)
+            
+            # 2. Ajuste leve de brillo y contraste dinámico (Simula variabilidad lumínica)
+            alpha = RNG.uniform(0.85, 1.15)
+            beta = RNG.uniform(-10, 10)
+            adjusted = cv2.convertScaleAbs(crop_rgb, alpha=alpha, beta=beta)
+            pos_crops.append(adjusted)
+            
             if len(detected_eyes) > 1:
                 stats["multi_eye_used"] += 1
 
@@ -242,6 +282,24 @@ def load_dataset(ojos_dir="./Ojos"):
                             )
                         idx += 1
             neg_crops.append(scrambled)
+
+    # --- AUMENTO DE DATOS DINÁMICO EN NEGATIVOS ---
+    augmented_negatives = []
+    for crop in neg_crops:
+        # Añadir original
+        augmented_negatives.append(crop)
+        
+        # 1. Volteo Horizontal (Simula simetría)
+        flipped = cv2.flip(crop, 1)
+        augmented_negatives.append(flipped)
+        
+        # 2. Ajuste leve de brillo y contraste dinámico
+        alpha = RNG.uniform(0.85, 1.15)
+        beta = RNG.uniform(-10, 10)
+        adjusted = cv2.convertScaleAbs(crop, alpha=alpha, beta=beta)
+        augmented_negatives.append(adjusted)
+        
+    neg_crops = augmented_negatives
 
     pos_count = len(pos_crops)
     neg_count = len(neg_crops)
@@ -351,20 +409,41 @@ def train_cnn(X, y, epochs=15, lr=0.001, batch_size=32):
 
 
 def export_to_onnx(model, output_path="./model/tu_modelo.onnx"):
-    print(f"\n[*] Exportando modelo CNN a formato ONNX en '{output_path}'...")
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
+    print(f"\n[*] Exportando modelo CNN a formato ONNX...")
     model.eval()
-    # Dummy input de tamaño [1, 224, 224, 3] en formato float32 como requiere la pizarra
     dummy_input = torch.zeros(1, INFER_SIZE, INFER_SIZE, 3, dtype=torch.float32)
 
+    # 1. Obtener la ruta del directorio destino y el nombre del archivo
+    final_onnx_path = os.path.abspath(output_path)
+    dest_dir = os.path.dirname(final_onnx_path)
+    filename = os.path.basename(final_onnx_path) # "tu_modelo.onnx"
+    
+    os.makedirs(dest_dir, exist_ok=True)
+    
+    # 2. Guardar el directorio de trabajo actual
+    original_cwd = os.getcwd()
+
     try:
+        # 3. Cambiar el directorio de trabajo actual al destino para que el exportador de C++
+        # no vea ninguna ruta con barras inclinadas ni caracteres conflictivos en Windows.
+        os.chdir(dest_dir)
+        
+        # Eliminar archivos existentes si los hay
+        if os.path.exists(filename):
+            try: os.remove(filename)
+            except Exception: pass
+        data_filename = filename + ".data"
+        if os.path.exists(data_filename):
+            try: os.remove(data_filename)
+            except Exception: pass
+
+        # 4. Exportar usando el nombre de archivo plano nativo
         torch.onnx.export(
             model,
             dummy_input,
-            output_path,
+            filename,
             export_params=True,
-            opset_version=12,  # Especificado por la pizarra como versión v12+
+            opset_version=18,  # Especificado por la pizarra como versión v12+ (18 >= 12)
             do_constant_folding=True,
             input_names=["cam_input"],
             output_names=["confidence_score"],
@@ -373,16 +452,23 @@ def export_to_onnx(model, output_path="./model/tu_modelo.onnx"):
                 "confidence_score": {0: "batch_size"}
             }
         )
-        print("[+] Grafo ONNX generado e importado exitosamente.")
+        print("[+] Grafo ONNX generado exitosamente de forma nativa en el destino.")
+        
+        # 5. Regresar al directorio de ejecución original de forma segura
+        os.chdir(original_cwd)
+        print(f"[+] Modelo ONNX guardado exitosamente en: '{final_onnx_path}'")
         
         # Validar el modelo usando la API de ONNX
         import onnx
-        onnx_model = onnx.load(output_path)
+        onnx_model = onnx.load(final_onnx_path)
         onnx.checker.check_model(onnx_model)
         print("[+] Validación de ONNX completada: Grafo sintáctica y estructuralmente válido.")
         return True
     except Exception as e:
         print(f"[ERROR] Fallo al exportar/validar ONNX: {e}")
+        # Asegurar regresar al directorio original en caso de fallo
+        try: os.chdir(original_cwd)
+        except Exception: pass
         return False
 
 
