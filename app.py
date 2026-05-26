@@ -16,14 +16,12 @@ try:
     face_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
     eye_path = os.path.join(cv2.data.haarcascades, "haarcascade_eye.xml")
     eye_glass_path = os.path.join(cv2.data.haarcascades, "haarcascade_eye_tree_eyeglasses.xml")
-    cat_face_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalcatface.xml")
     
     face_cascade = cv2.CascadeClassifier(face_path)
     eye_cascade = cv2.CascadeClassifier(eye_path)
     eye_glass_cascade = cv2.CascadeClassifier(eye_glass_path)
-    cat_face_cascade = cv2.CascadeClassifier(cat_face_path)
 
-    if face_cascade.empty() or eye_cascade.empty() or eye_glass_cascade.empty() or cat_face_cascade.empty():
+    if face_cascade.empty() or eye_cascade.empty() or eye_glass_cascade.empty():
         raise ValueError("Uno o más clasificadores Haar Cascade están vacíos o no se encontraron.")
 
     print("[*] Clasificadores Haar Cascade cargados correctamente.")
@@ -52,74 +50,6 @@ except Exception as e:
     print(f"[!] Error al cargar el modelo ONNX: {e}")
 
 
-def apply_clahe_color(crop_bgr):
-    """
-    Aplica CLAHE al canal de luminosidad (L) en el espacio de color LAB
-    para mejorar el contraste adaptativo sin distorsionar los colores del parche.
-    """
-    if crop_bgr.shape[0] < 5 or crop_bgr.shape[1] < 5:
-        return crop_bgr
-    try:
-        lab = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2LAB)
-        l_channel, a_channel, b_channel = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        cl = clahe.apply(l_channel)
-        merged = cv2.merge((cl, a_channel, b_channel))
-        enhanced_bgr = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
-        return enhanced_bgr
-    except Exception:
-        return crop_bgr
-
-
-def non_max_suppression_iou(detections, iou_threshold=0.35):
-    """
-    Aplica Non-Maximum Suppression (NMS) usando IoU (Intersection over Union).
-    detections: lista de tuplas (x, y, w, h, score)
-    """
-    if len(detections) == 0:
-        return []
-        
-    # Ordenar por score descendente
-    detections = sorted(detections, key=lambda x: x[4], reverse=True)
-    
-    keep = []
-    while len(detections) > 0:
-        best = detections[0]
-        keep.append(best)
-        
-        if len(detections) == 1:
-            break
-            
-        remaining = []
-        bx, by, bw, bh, _ = best
-        best_area = bw * bh
-        
-        for item in detections[1:]:
-            ix, iy, iw, ih, _ = item
-            # Calcular intersección
-            x1 = max(bx, ix)
-            y1 = max(by, iy)
-            x2 = min(bx + bw, ix + iw)
-            y2 = min(by + bh, iy + ih)
-            
-            inter_w = max(0, x2 - x1)
-            inter_h = max(0, y2 - y1)
-            inter_area = inter_w * inter_h
-            
-            # Calcular unión
-            item_area = iw * ih
-            union_area = best_area + item_area - inter_area
-            
-            iou = inter_area / union_area if union_area > 0 else 0.0
-            
-            if iou <= iou_threshold:
-                remaining.append(item)
-                
-        detections = remaining
-        
-    return keep
-
-
 def evaluate_crop_internal(img, x, y, w, h):
     """
     Extrae, redimensiona y evalúa un parche de imagen utilizando el modelo ONNX global.
@@ -135,9 +65,7 @@ def evaluate_crop_internal(img, x, y, w, h):
     h1 = int(max(10, min(h, img_h - y1)))
     
     crop = img[y1:y1+h1, x1:x1+w1]
-    crop_enhanced = apply_clahe_color(crop)
-    
-    crop_rgb = cv2.cvtColor(crop_enhanced, cv2.COLOR_BGR2RGB)
+    crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
     crop_resized = cv2.resize(crop_rgb, (224, 224))
     
     input_tensor = crop_resized.astype(np.float32) / 255.0
@@ -232,13 +160,12 @@ def detect():
         # Convertir a escala de grises para los clasificadores en cascada
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         
-        # Detector de rostros (humanos y felinos)
+        # Detector de rostros
         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=4, minSize=(60, 60))
-        cat_faces = cat_face_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=3, minSize=(50, 50))
         
         all_eye_candidates = []
         
-        # Buscar ojos dentro de rostros humanos
+        # Buscar ojos dentro de rostros
         if len(faces) > 0:
             for (fx, fy, fw, fh) in faces:
                 roi_gray = gray[fy:fy + int(fh*0.65), fx:fx + fw]
@@ -252,6 +179,7 @@ def detect():
                     all_eye_candidates.append((fx + ex, fy + ey, ew, eh))
 
             # Si hay rostro pero el ROI no devolvió ojos, buscar en toda la imagen
+            # (misma lógica que train_model.py para parches 224×224)
             if len(all_eye_candidates) == 0:
                 eyes_std = eye_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
                 for (ex, ey, ew, eh) in eyes_std:
@@ -259,24 +187,13 @@ def detect():
                 eyes_glass = eye_glass_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
                 for (ex, ey, ew, eh) in eyes_glass:
                     all_eye_candidates.append((ex, ey, ew, eh))
-
-        # Buscar ojos en rostros de mascotas (gatos/animales)
-        if len(cat_faces) > 0:
-            for (cx, cy, cw, ch) in cat_faces:
-                roi_gray = gray[cy:cy + int(ch*0.60), cx:cx + cw]
-                # Parámetro de detección más sensible para ojos de gato
-                eyes_std = eye_cascade.detectMultiScale(roi_gray, scaleFactor=1.04, minNeighbors=1, minSize=(10, 10))
-                for (ex, ey, ew, eh) in eyes_std:
-                    all_eye_candidates.append((cx + ex, cy + ey, ew, eh))
-
-        # Si no se detectaron caras (humanas o animales), buscar candidatos en toda la imagen.
-        # Usamos parámetros relajados para que la CNN actúe como un validador de precisión.
-        if len(all_eye_candidates) == 0 and len(faces) == 0 and len(cat_faces) == 0:
-            eyes_std = eye_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=2, minSize=(15, 15))
+        else:
+            # Si no hay caras, buscar en toda la imagen con parámetros más estrictos
+            eyes_std = eye_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(25, 25))
             for (ex, ey, ew, eh) in eyes_std:
                 all_eye_candidates.append((ex, ey, ew, eh))
                 
-            eyes_glass = eye_glass_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=2, minSize=(15, 15))
+            eyes_glass = eye_glass_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(25, 25))
             for (ex, ey, ew, eh) in eyes_glass:
                 all_eye_candidates.append((ex, ey, ew, eh))
                 
@@ -293,24 +210,19 @@ def detect():
                 unique_candidates.append((x, y, w, h))
         all_eye_candidates = unique_candidates
 
-        # Descartar candidatos fuera de rostros detectados (humano o felino) si alguno de ellos está presente
-        has_any_face = (len(faces) > 0 or len(cat_faces) > 0)
-        if has_any_face and len(all_eye_candidates) > 0:
+        # Descartar candidatos fuera del rostro (Haar suele marcar ropa/texturas)
+        if len(faces) > 0 and len(all_eye_candidates) > 0:
             filtered = []
             for (x, y, w, h) in all_eye_candidates:
                 cx, cy = x + w / 2, y + h / 2
                 inside_face = False
-                # Verificar cara humana
                 for (fx, fy, fw, fh) in faces:
-                    if (fx - 15 <= cx <= fx + fw + 15 and fy - 15 <= cy <= fy + int(fh * 0.75)):
+                    if (
+                        fx - 10 <= cx <= fx + fw + 10
+                        and fy - 10 <= cy <= fy + int(fh * 0.72)
+                    ):
                         inside_face = True
                         break
-                # Verificar cara felina
-                if not inside_face:
-                    for (cx_f, cy_f, cw_f, ch_f) in cat_faces:
-                        if (cx_f - 15 <= cx <= cx_f + cw_f + 15 and cy_f - 15 <= cy <= cy_f + int(ch_f * 0.75)):
-                            inside_face = True
-                            break
                 if inside_face:
                     filtered.append((x, y, w, h))
             all_eye_candidates = filtered
@@ -330,34 +242,23 @@ def detect():
         zero_detections = []  # (x, y, w, h, score)
         
         fallback_score = None
-        if fallback_used:
-            # Sin candidatos Haar: evaluar centro sin dibujar cajas
-            for (x, y, w, h) in all_eye_candidates:
+        for (x, y, w, h) in all_eye_candidates:
+            if fallback_used:
+                # Sin candidatos Haar: evaluar centro sin dibujar cajas
                 score, final_box = evaluate_crop_internal(img_bgr, x, y, w, h)
                 fallback_score = score
                 zero_detections.append((*final_box, score))
-        else:
-            # Obtener refinamientos de la CNN para cada candidato
-            refined_candidates = []
-            for (x, y, w, h) in all_eye_candidates:
+                continue
+            else:
                 score, final_box = refine_box(img_bgr, x, y, w, h)
-                refined_candidates.append((*final_box, score))
-            
-            # Aplicar Supresión de No Máximos (NMS) basado en IoU
-            # Esto eliminará recuadros superpuestos en el mismo ojo y seleccionará el de mayor confianza
-            nms_survivors = non_max_suppression_iou(refined_candidates, iou_threshold=0.20)
-            
-            for (fx, fy, fw, fh, score) in nms_survivors:
-                if score >= threshold:
-                    green_detections.append((fx, fy, fw, fh, score))
-                elif score >= low_threshold:
-                    red_detections.append((fx, fy, fw, fh, score))
-                else:
-                    zero_detections.append((fx, fy, fw, fh, score))
-                    
-            # En caso de que se requiera alguna visualización de descarte, añadir los no supervivientes
-            # a las zero_detections para auditoría si es necesario, pero actualmente zero_detections solo
-            # sirve de fallback.
+
+            fx, fy, fw, fh = final_box
+            if score >= threshold:
+                green_detections.append((fx, fy, fw, fh, score))
+            elif score >= low_threshold:
+                red_detections.append((fx, fy, fw, fh, score))
+            else:
+                zero_detections.append((fx, fy, fw, fh, score))
                     
         has_boxes = (len(green_detections) > 0 or len(red_detections) > 0)
         detections_list = []
