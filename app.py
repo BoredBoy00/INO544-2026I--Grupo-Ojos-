@@ -33,7 +33,7 @@ DEFAULT_THRESHOLD = 0.60
 DEFAULT_LOW_THRESHOLD = 0.28
 
 # Cargar el modelo ONNX globalmente para evitar latencias en la inferencia
-MODEL_PATH = "./model/tu_modelo.onnx"
+MODEL_PATH = "./model/ojo_modelo.onnx"
 session = None
 input_name = None
 output_name = None

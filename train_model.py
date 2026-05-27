@@ -350,7 +350,7 @@ def train_cnn(X, y, epochs=15, lr=0.001, batch_size=32):
     return model
 
 
-def export_to_onnx(model, output_path="./model/tu_modelo.onnx"):
+def export_to_onnx(model, output_path="./model/ojo_modelo.onnx"):
     print(f"\n[*] Exportando modelo CNN a formato ONNX en '{output_path}'...")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 

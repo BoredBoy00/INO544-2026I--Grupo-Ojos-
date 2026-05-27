@@ -259,7 +259,7 @@ def main():
     parser.add_argument(
         "-m", "--model",
         type=str,
-        default="./model/tu_modelo.onnx",
+        default="./model/ojo_modelo.onnx",
         help="Ruta al modelo ONNX entrenado."
     )
     parser.add_argument(

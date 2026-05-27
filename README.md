@@ -62,7 +62,7 @@
 
 ## ⚙️ 5. Especificación de Exportación ONNX
 El modelo se ha homologado bajo los estándares requeridos por la interfaz centralizada:
-* **Nombre del archivo:** `model/tu_modelo.onnx`
+* **Nombre del archivo:** `model/ojo_modelo.onnx`
 * **Tensor de Entrada (Input Shape):** `[1, 224, 224, 3]` (Tipo: `float32`)
 * **Tensor de Salida (Output Shape):** `[1, 1]` (Tipo: `float32`)
 * **Función de activación final:** Sigmoide (Rango de salida de 0.0 a 1.0 para conversión a porcentaje de confianza).
