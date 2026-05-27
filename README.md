@@ -20,7 +20,7 @@
 ---
 
 ## 📊 2. Gestión del Dataset (Ingeniería de Datos)
-* **Cantidad de imágenes originales recopiladas:** 700 imágenes (600 imágenes con ojos humanos y 100 imágenes de animales).
+* **Cantidad de imágenes originales recopiladas:** 600+ imágenes con ojos humanos y variaciones.
 * **Estrategia de Data Augmentation aplicada:**
     * *Rotación:* Rango de ±15 grados para simular diferentes inclinaciones de la cabeza.
     * *Zoom:* Rango de 0.85 a 1.15 (±15%) para emular variaciones en la distancia de la cámara.
@@ -121,10 +121,6 @@ Una vez iniciado el servidor, accede a la interfaz gráfica abriendo tu navegado
   ```bash
   python detect_ojos.py --image "ruta/de/tu/imagen.jpg"
   ```
-* **Generación de negativos difíciles:**
-  Genera parches artificiales sin ojos para entrenar el modelo y reducir falsos positivos:
-  ```bash
-  python generate_hard_negatives.py
   ```
 * **Entrenamiento de la red neuronal:**
   Entrena la red convolucional (CNN) en PyTorch y genera el archivo ONNX optimizado:
